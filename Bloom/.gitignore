@@ -1,0 +1,3 @@
+.build/
+.swiftpm/
+Bloom/backend/Config/Supabase.local.xcconfig
