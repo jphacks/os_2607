@@ -20,9 +20,7 @@ final class UWBMultiPeerSession {
     @ObservationIgnored private var transport = UWBPeerTransport()
     @ObservationIgnored private var hostingTask: Task<Void, Never>?
     @ObservationIgnored private var browsingTask: Task<Void, Never>?
-    @ObservationIgnored private var connectionTasks: [UUID: Task<Void, Never>] = [:]
-    @ObservationIgnored private var coordinators: [UUID: UWBSessionCoordinator] = [:]
-    @ObservationIgnored private var discoveryIDs: [UUID: String] = [:]
+    @ObservationIgnored private var connectionSessions: [UUID: UWBPeerConnectionSession] = [:]
 
     init(personID: UUID = LocalPersonIdentity.load()) {
         self.personID = personID
@@ -48,7 +46,7 @@ final class UWBMultiPeerSession {
         let transport = transport
         hostingTask = Task { [weak self] in
             do {
-                try await transport.host(maximumConcurrentConnections: nil) { [weak self] status in
+                try await transport.host(connectionCapacity: .unlimited) { [weak self] status in
                     self?.emit(.statusChanged(status))
                 } connected: { [weak self] connection in
                     self?.startConnection(on: connection, peerName: nil, discoveryID: nil)
@@ -73,9 +71,7 @@ final class UWBMultiPeerSession {
         browsingTask = Task { [weak self] in
             do {
                 try await transport.browse { [weak self] peers in
-                    guard let self else { return }
-                    discoveredPeers = peers
-                    emit(.discoveredPeersChanged(peers))
+                    self?.updateDiscoveredPeers(peers)
                 } status: { [weak self] status in
                     self?.emit(.statusChanged(status))
                 }
@@ -91,8 +87,7 @@ final class UWBMultiPeerSession {
     func stopBrowsing() {
         browsingTask?.cancel()
         browsingTask = nil
-        discoveredPeers = []
-        emit(.discoveredPeersChanged([]))
+        updateDiscoveredPeers([])
     }
 
     @discardableResult
@@ -100,28 +95,22 @@ final class UWBMultiPeerSession {
         guard requireSupport() else {
             throw UWBFailure.message("この端末はUWB計測に対応していません。")
         }
-        if let existing = discoveryIDs.first(where: { $0.value == peer.id })?.key {
-            if connectionTasks[existing] != nil {
-                return existing
-            }
-            disconnect(id: existing)
+        if let existing = connectionSession(forDiscoveryID: peer.id) {
+            guard !existing.isRunning else { return existing.id }
+            disconnect(id: existing.id)
         }
         let connection = try transport.connection(to: peer)
         return startConnection(on: connection, peerName: peer.name, discoveryID: peer.id)
     }
 
     func disconnect(id: UUID) {
-        connectionTasks[id]?.cancel()
-        coordinators[id]?.stop()
-        connectionTasks[id] = nil
-        coordinators[id] = nil
-        discoveryIDs[id] = nil
+        connectionSessions.removeValue(forKey: id)?.stop()
         guard connectionStore.remove(id: id) else { return }
         emit(.connectionRemoved(id: id))
     }
 
     func disconnect(from personID: UUID) {
-        connections.filter { $0.personID == personID }.forEach { disconnect(id: $0.id) }
+        connectionStore.connections(for: personID).forEach { disconnect(id: $0.id) }
     }
 
     func stop() {
@@ -137,60 +126,36 @@ final class UWBMultiPeerSession {
         peerName: String?,
         discoveryID: String?
     ) -> UUID {
-        let id = UUID()
-        let coordinator = UWBSessionCoordinator()
-        coordinators[id] = coordinator
-        discoveryIDs[id] = discoveryID
+        let session = UWBPeerConnectionSession(discoveryID: discoveryID, peerName: peerName)
+        connectionSessions[session.id] = session
         updateConnection(
             UWBPeerConnection(
-                id: id,
+                id: session.id,
                 personID: nil,
                 peerName: peerName,
                 state: .connecting,
                 observation: nil
             )
         )
-
-        connectionTasks[id] = Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await coordinator.run(on: connection, personID: personID) { [weak self] event in
-                    self?.handle(event, connectionID: id)
-                }
-                if !Task.isCancelled {
-                    markFailed(id: id, message: "計測セッションが終了しました。")
-                }
-            } catch is CancellationError {
-                // Explicit disconnect.
-            } catch {
-                markFailed(id: id, message: error.localizedDescription)
+        session.start(
+            on: connection,
+            localPersonID: personID,
+            event: { [weak self] event in
+                self?.handle(event, connectionID: session.id)
+            },
+            finished: { [weak self, weak session] issue in
+                guard let self, let session else { return }
+                finish(session, issue: issue)
             }
-            finishConnectionTask(id: id, coordinator: coordinator)
-        }
-        return id
+        )
+        return session.id
     }
 
     private func handle(_ event: UWBSessionEvent, connectionID: UUID) {
-        guard let current = connections.first(where: { $0.id == connectionID }) else { return }
+        guard let current = connectionStore.connection(id: connectionID) else { return }
         switch event {
         case let .identified(remoteID):
-            let duplicates = connections.filter { $0.id != connectionID && $0.personID == remoteID }
-            guard !duplicates.contains(where: { connectionTasks[$0.id] != nil }) else {
-                markFailed(id: connectionID, message: "同じ端末との接続が既に存在します。")
-                connectionTasks[connectionID]?.cancel()
-                coordinators[connectionID]?.stop()
-                return
-            }
-            duplicates.forEach { disconnect(id: $0.id) }
-            updateConnection(
-                UWBPeerConnection(
-                    id: current.id,
-                    personID: remoteID,
-                    peerName: current.peerName ?? "相手 \(remoteID.uuidString.prefix(6))",
-                    state: .measuring,
-                    observation: nil
-                )
-            )
+            handleIdentification(remoteID, for: current)
         case let .observation(observation):
             updateConnection(
                 UWBPeerConnection(
@@ -207,37 +172,63 @@ final class UWBMultiPeerSession {
                     id: current.id,
                     personID: current.personID,
                     peerName: current.peerName,
-                    state: .unavailable(message: message),
+                    state: .unavailable(reason: .rangingUnavailable(message: message)),
                     observation: nil
                 )
             )
         }
     }
 
-    private func markFailed(id: UUID, message: String) {
-        guard let current = connections.first(where: { $0.id == id }) else { return }
+    private func handleIdentification(_ personID: UUID, for connection: UWBPeerConnection) {
+        let duplicates = connectionStore.connections(for: personID, excluding: connection.id)
+        guard !duplicates.contains(where: { connectionSessions[$0.id]?.isRunning == true }) else {
+            failConnection(id: connection.id, issue: .duplicateConnection)
+            connectionSessions.removeValue(forKey: connection.id)?.stop()
+            return
+        }
+        duplicates.forEach { disconnect(id: $0.id) }
         updateConnection(
             UWBPeerConnection(
-                id: current.id,
-                personID: current.personID,
-                peerName: current.peerName,
-                state: .failed(message: message),
+                id: connection.id,
+                personID: personID,
+                peerName: connection.peerName ?? "相手 \(personID.uuidString.prefix(6))",
+                state: .measuring,
                 observation: nil
             )
         )
     }
 
+    private func finish(_ session: UWBPeerConnectionSession, issue: UWBPeerConnectionIssue) {
+        guard connectionSessions[session.id] === session else { return }
+        connectionSessions[session.id] = nil
+        failConnection(id: session.id, issue: issue)
+    }
+
+    private func failConnection(id: UUID, issue: UWBPeerConnectionIssue) {
+        guard let current = connectionStore.connection(id: id) else { return }
+        updateConnection(
+            UWBPeerConnection(
+                id: current.id,
+                personID: current.personID,
+                peerName: current.peerName,
+                state: .failed(reason: issue),
+                observation: nil
+            )
+        )
+    }
+
+    private func connectionSession(forDiscoveryID discoveryID: String) -> UWBPeerConnectionSession? {
+        connectionSessions.values.first { $0.discoveryID == discoveryID }
+    }
+
+    private func updateDiscoveredPeers(_ peers: [UWBPeer]) {
+        discoveredPeers = peers
+        emit(.discoveredPeersChanged(peers))
+    }
+
     private func updateConnection(_ connection: UWBPeerConnection) {
         connectionStore.update(connection)
         emit(.connectionChanged(connection))
-    }
-
-    private func finishConnectionTask(id: UUID, coordinator: UWBSessionCoordinator) {
-        coordinator.stop()
-        if coordinators[id] === coordinator {
-            coordinators[id] = nil
-            connectionTasks[id] = nil
-        }
     }
 
     @discardableResult

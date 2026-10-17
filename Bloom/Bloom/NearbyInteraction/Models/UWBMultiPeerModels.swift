@@ -1,11 +1,29 @@
 import Foundation
 
+nonisolated enum UWBPeerConnectionIssue: LocalizedError, Sendable, Equatable {
+    case rangingUnavailable(message: String)
+    case duplicateConnection
+    case sessionEnded
+    case transportFailure(message: String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .rangingUnavailable(message), let .transportFailure(message):
+            message
+        case .duplicateConnection:
+            "同じ端末との接続が既に存在します。"
+        case .sessionEnded:
+            "計測セッションが終了しました。"
+        }
+    }
+}
+
 /// The lifecycle of one connection. Each connection owns one Nearby Interaction session.
 nonisolated enum UWBPeerConnectionState: Sendable, Equatable {
     case connecting
     case measuring
-    case unavailable(message: String)
-    case failed(message: String)
+    case unavailable(reason: UWBPeerConnectionIssue)
+    case failed(reason: UWBPeerConnectionIssue)
 }
 
 /// SDK-independent data for one nearby device.
@@ -36,8 +54,16 @@ nonisolated struct UWBMultiPeerConnectionStore: Sendable, Equatable {
         connections.compactMap(\.observation)
     }
 
+    func connection(id: UUID) -> UWBPeerConnection? {
+        connections.first { $0.id == id }
+    }
+
     func connection(for personID: UUID) -> UWBPeerConnection? {
         connections.first { $0.personID == personID }
+    }
+
+    func connections(for personID: UUID, excluding id: UUID? = nil) -> [UWBPeerConnection] {
+        connections.filter { $0.personID == personID && $0.id != id }
     }
 
     mutating func update(_ connection: UWBPeerConnection) {

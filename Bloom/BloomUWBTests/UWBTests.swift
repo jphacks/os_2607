@@ -50,6 +50,7 @@ struct UWBMultiPeerConnectionStoreTests {
         #expect(store.connections.count == 2)
         #expect(store.observations.map(\.distanceMeters) == [1.5, 2.5])
         #expect(store.connection(for: bobPersonID)?.id == bobID)
+        #expect(store.connections(for: bobPersonID, excluding: aliceID).map(\.id) == [bobID])
 
         let removedExisting = store.remove(id: aliceID)
         let removedMissing = store.remove(id: aliceID)
@@ -73,6 +74,16 @@ struct UWBMultiPeerConnectionStoreTests {
                 UWBObservation(personID: $0, distanceMeters: distance, direction: nil)
             }
         )
+    }
+}
+
+struct UWBPeerConnectionIssueTests {
+    @Test func `Issue preserves a typed reason and readable description`() {
+        let unavailable = UWBPeerConnectionIssue.rangingUnavailable(message: "not visible")
+
+        #expect(unavailable.errorDescription == "not visible")
+        #expect(UWBPeerConnectionIssue.duplicateConnection.errorDescription != nil)
+        #expect(UWBPeerConnectionIssue.sessionEnded.errorDescription != nil)
     }
 }
 

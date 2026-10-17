@@ -1,12 +1,26 @@
 import Foundation
 import Network
 
+nonisolated enum UWBConnectionCapacity: Sendable {
+    case single
+    case unlimited
+
+    func allows(activeConnectionCount: Int) -> Bool {
+        switch self {
+        case .single:
+            activeConnectionCount == 0
+        case .unlimited:
+            true
+        }
+    }
+}
+
 @MainActor
 final class UWBPeerTransport {
     static let serviceType = "_bloom-uwb._tcp"
     let serviceName = "UWB-" + UUID().uuidString.prefix(6)
     private var endpoints: [String: Bonjour.Endpoint] = [:]
-    private var acceptingConnection = false
+    private var activeConnectionCount = 0
 
     private var parameters: NWParametersBuilder<TCP> {
         NWParametersBuilder { TCP().connectionTimeout(15) }.peerToPeerIncluded(true)
@@ -27,7 +41,8 @@ final class UWBPeerTransport {
         }
     }
 
-    func host(status: @escaping @MainActor @Sendable (String) -> Void,
+    func host(connectionCapacity: UWBConnectionCapacity = .single,
+              status: @escaping @MainActor @Sendable (String) -> Void,
               connected: @escaping @MainActor @Sendable (NetworkConnection<TCP>) async -> Void) async throws {
         let listener = try NetworkListener(for: .bonjour(name: serviceName, type: Self.serviceType), using: parameters)
             .onStateUpdate { _, state in
@@ -38,9 +53,11 @@ final class UWBPeerTransport {
                 }
             }
         try await listener.run { connection in
-            guard !self.acceptingConnection else { return }
-            self.acceptingConnection = true
-            defer { self.acceptingConnection = false }
+            guard connectionCapacity.allows(activeConnectionCount: self.activeConnectionCount) else {
+                return
+            }
+            self.activeConnectionCount += 1
+            defer { self.activeConnectionCount -= 1 }
             await connected(connection)
         }
     }
