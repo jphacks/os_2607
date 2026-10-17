@@ -20,11 +20,9 @@ Package.resolved
 !.env.example
 
 xcuserdatad
+*.pbxproj
 
 # 一時ファイル
 *.tmp
-<<<<<<< HEAD
 *.log
-=======
 *.log
->>>>>>> origin/main
