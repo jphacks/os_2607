@@ -20,7 +20,6 @@ Package.resolved
 !.env.example
 
 xcuserdatad
-<<<<<<< HEAD
 *.pbxproj
 
 # 一時ファイル
