@@ -1,0 +1,1 @@
+/Users/kazuyoshi/Developer/os_2607/AGENTS.md
