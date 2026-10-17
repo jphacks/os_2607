@@ -2,8 +2,16 @@ import SwiftUI
 
 @main
 struct BloomApp: App {
+    @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding = false
+
     var body: some Scene {
-        WindowGroup { HomeView() }
+        WindowGroup {
+            if didCompleteOnboarding {
+                HomeView()
+            } else {
+                AuthFlowView()
+            }
+        }
     }
 }
 
@@ -146,7 +154,7 @@ struct HomeView: View {
 
     private var greeting: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("Hello, あおいさん")
+            Text("Hello, \(profileName)さん")
                 .font(.system(size: 27, weight: .bold, design: .rounded))
                 .tracking(-0.6)
             Text("一緒に過ごした時間が、プロフィールをひらきます。")

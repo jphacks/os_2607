@@ -275,6 +275,8 @@ private struct EditableProfileField: Identifiable, Codable, Equatable {
 
 struct MyProfilePage: View {
     @Binding var profileName: String
+    @AppStorage("profileAffiliation") private var profileAffiliation = ""
+    @AppStorage("profileBio") private var profileBio = ""
     @AppStorage("editableProfileFields") private var storedFields = ""
     @State private var fields: [EditableProfileField] = [
         EditableProfileField(title: "自己紹介", content: "好きなことを通じて、いろんな人と話したいです。", revealMinutes: 0, isPublic: true),
@@ -303,6 +305,20 @@ struct MyProfilePage: View {
                 }
                 .padding(14)
                 .background(.white, in: RoundedRectangle(cornerRadius: 20))
+
+                if !profileAffiliation.isEmpty || !profileBio.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if !profileAffiliation.isEmpty {
+                            profileInfoRow(title: "所属", value: profileAffiliation)
+                        }
+                        if !profileBio.isEmpty {
+                            profileInfoRow(title: "自己紹介", value: profileBio)
+                        }
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 18))
+                }
 
                 HStack {
                     Text("公開する情報").font(.system(size: 16, weight: .bold))
@@ -374,5 +390,16 @@ struct MyProfilePage: View {
 
     private func removeField(id: UUID) {
         fields.removeAll { $0.id == id }
+    }
+
+    private func profileInfoRow(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(BloomPalette.muted)
+            Text(value)
+                .font(.system(size: 12))
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
