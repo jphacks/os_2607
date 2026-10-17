@@ -1,4 +1,0 @@
-// Only a project URL and public client key belong here. Supply values in the local override.
-SUPABASE_URL =
-SUPABASE_PUBLISHABLE_KEY =
-#include? "Supabase.local.xcconfig"

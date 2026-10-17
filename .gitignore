@@ -25,9 +25,4 @@ xcuserdatad
 # 一時ファイル
 *.tmp
 *.log
-=======
-
-# 一時ファイル
-*.tmp
 *.log
->>>>>>> origin/main

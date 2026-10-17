@@ -1,6 +1,6 @@
 # 検証方針
 
-将来の実装時に行う検証の計画。今回テストコードの追加、ビルド、テスト実行、実機計測は行わない。
+全体の検証計画。今回のUWB単独実装は[UWB検証記録](uwb-verification.md)を参照。
 
 ## Domain
 
@@ -21,7 +21,9 @@ SDK非依存の観測列と制御可能な時間源を使い、同じ入力で�
 
 ## Simulatorと実機
 
-SimulatorではProximity、Connection、時間源、プロフィール取得をモックに差し替える。距離・方向の変化、欠損、切断、再接続、同期失敗を再現する。UWBの実測確認には使わない。
+Simulatorはビルド確認とSwift Testingに使い、UWBの距離・方向取得には使わない。SDK非依存の方向計算、欠損、複数接続の状態分離、通信framing、handshake、timeout、cancellationは単体チェックで確認する。
+
+UWBのXcode単体テストは`BloomUWBTests` schemeで実行する。複数端末状態はNetwork.frameworkやNearby Interactionを起動せず、`UWBMultiPeerConnectionStore`へ決定的な入力を与えて、接続IDによる更新・personID検索・並び順・観測値分離・削除を確認する。
 
 対応する実機2台以上で端末発見、接続、personID / token交換、距離・方向取得、距離変化によるEncounter判定を確認する。計測不可、権限拒否、セッション無効化、再接続も確認する。機種・OS・権限状態・実際の距離・観測値・時刻・期待値・結果を記録する。
 
