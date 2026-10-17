@@ -5,7 +5,7 @@
 | ID | 状態 | 判断 | 理由 |
 | --- | --- | --- | --- |
 | D01 | 採用方針 | DomainをUI・通信・保存・Supabase SDKから分離 | ルールを独立して検証し、将来のwatchOSでも再利用しやすくする |
-| D02 | 採用方針 | Nearby Interactionは距離・方向、Multipeer Connectivityは発見・接続・token / personID交換 | 計測と通信の責務を明確にする |
+| D02 | 採用方針 | Nearby Interactionは距離・方向、Network.frameworkは発見・接続・token / personID交換 | 計測と通信の責務を明確にする |
 | D03 | 採用方針 | 永続識別にはpersonIDを使い、discoveryTokenを使わない | 接続や計測セッションを越えてPersonの履歴を扱う |
 | D04 | 採用方針 | Supabaseを最新プロフィールの正本とする | プロフィール更新の基準を統一する |
 | D05 | 採用方針 | SwiftDataにEncounter履歴・累計時間・プロフィールキャッシュを保存 | ローカルで履歴と表示に必要な情報を保持する |
@@ -26,3 +26,17 @@
 ## 更新方法
 
 判断を追加・変更するときはID、日付、状態、理由、影響するphaseを記録する。仮ルールを変更したらdomain.md、testing.md、関連phaseも更新する。未決定事項を実装上の都合だけで確定扱いにしない。
+
+
+## 2026-10-17: UWB単独実装（Phase 3の一部）
+
+- D11 / 採用 / 通信はiOS 26のNetworkBrowser・NetworkListener・NetworkConnectionとSwift Concurrencyを使う。ユーザー指定によりMultipeer Connectivityは不採用。D02更新。既存のiOS 26.2以上を維持し、Swift 6と警告のエラー化で検証。参考: https://developer.apple.com/videos/play/wwdc2025/250/
+- D12 / 採用 / ユーザー担当範囲に合わせ「2台間の距離・方向表示」を先行実装する。Encounter、Reveal、保存、Supabase、AR、メインUIは今回の対象外。Phase 1・2やPhase 3全体の完了とはしない。
+- D13 / 暫定 / 1対1・フォアグラウンドのみ。片方が待受、片方がBonjourから端末を選択。待受側は同時に1接続のみ。バックグラウンドでは停止し、復帰・切断・無効化後は手動で開始する。新しいNISessionとtokenを作り直す。
+- D14 / 採用 / NIの現行SDKにはasync計測APIがないため、非deprecatedのNISessionDelegateを専用アダプターに閉じ込め、AsyncStreamで渡す。tokenは現行のNSSecureCoding APIで交換。NISession.isSupportedは使わずdeviceCapabilitiesを使う。
+- D15 / 暫定 / SDK非依存のUWBObservationにpersonID・距離・方向・観測時刻を格納。欠損・切断・停止時に表示を消す。更新停止3秒で消す。通信初回交換20秒、heartbeat間隔2秒、受信待ち10秒は実機で見直す仮値。Encounterの加算ルールではない。
+- D16 / 暫定 / UUIDをUserDefaultsのBloom.personIDに保存。tokenは永続化しない。再インストール時復元・認証対応は未実装。Bonjourには開始ごとの一時名を公開する。
+- D17 / 検証用途限定 / Bonjour + TCP（peer-to-peer Wi-Fiを有効化）でID・token・heartbeatのみ交換。受信サイズ上限、version、ID、tokenを検証。暗号化と本人認証は未実装で、受信IDをプロフィール取得の認可に使わない。公開運用前にペアリングと暗号化の設計が必要。
+- D18 / 採用 / UIはUWB操作、距離、左右・上下方向、計測状態のみ。iPhoneは縦向き。directionのx右・y上・-z背面方向から角度を計算。鉛直方向では上下のみ表示。Debugのモックは実測と明確に区別。ARカメラ補助は使用しない。
+
+将来のAPI非推奨化は保証できないため、現在のSDKの非推奨警告がないことを確認する。

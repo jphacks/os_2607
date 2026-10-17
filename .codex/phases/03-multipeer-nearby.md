@@ -1,4 +1,4 @@
-# Phase 3: Multipeer ConnectivityとNearby Interaction
+# Phase 3: Network.frameworkとNearby Interaction
 
 ## Goal
 
@@ -15,7 +15,7 @@ Supabase同期、Encounterのクラウド同期、ARKitによる演出、watchOS
 ## Domain assumptions
 
 - Nearby Interactionは距離・方向を取得する。
-- Multipeer Connectivityは端末発見・接続・token交換・personID交換を担う。
+- Network.frameworkは端末発見・接続・token交換・personID交換を担う。
 - personIDは永続ID、tokenは通信・計測セッションに紐づく情報。
 - 接続成立だけではEncounterを開始しない。欠損は近接として扱わない。
 - Phase 1で決めた仮ルールと欠損時の判定を利用する。
@@ -51,3 +51,11 @@ Supabase同期、Encounterのクラウド同期、ARKitによる演出、watchOS
 - 計測誤差・更新間隔・欠損に対する許容条件は何か。
 - 同時接続人数、バックグラウンド動作、対応OS・機種はどこまで含めるか。
 - 受信したpersonIDの真正性をどう確認するか。ARKitを追加する必要があるか。
+
+## 今回の実装範囲（2026-10-17）
+
+Network.frameworkのSwift Concurrency APIで1対1接続し、Nearby Interactionの距離・方向を専用UIに表示する。D11〜D18参照。ファイル名は既存リンク維持のため変更しない。
+
+- 機能本体: `Bloom/Bloom/NearbyInteraction/`
+- 手順・検証結果: [UWB検証記録](../uwb-verification.md)
+- Encounter・SwiftData連携と実機計測は未完了。Phase 1・2は今回の対象外。

@@ -1,12 +1,12 @@
 # Architecture
 
-以下は目標とする構成。今回、モジュール・ファイル・依存関係は実装しない。
+以下は全体の目標構成。UWB単独実装の範囲はdecisions.mdのD11以降を参照。
 
 ## 層と依存方向
 
 - Presentation: SwiftUIで画面状態を表示し、ユーザー操作をApplicationへ渡す。
 - Application: 観測入力、Encounter判定、保存、プロフィール同期を調整する。
-- Domain: Person、Profile、Proximity、Encounter、Reveal、Connectionとルール。SwiftUI、NearbyInteraction、MultipeerConnectivity、Supabase SDK、SwiftDataに依存しない。
+- Domain: Person、Profile、Proximity、Encounter、Reveal、Connectionとルール。SwiftUI、NearbyInteraction、Network、Supabase SDK、SwiftDataに依存しない。
 - Infrastructure: 各SDKのアダプターと、保存・通信の実装。Domainの値やApplication側のインターフェースへ変換する。
 
 Presentation → Application → Domainの向きに依存する。Infrastructureは内側で定義したインターフェースを実装する。依存の組み立てはアプリの起動側で行う。SwiftDataのモデルやSDKのtokenをDomainの型にしない。時間源と観測入力を差し替え可能にする。
@@ -18,7 +18,7 @@ Presentation → Application → Domainの向きに依存する。Infrastructure
 | Swift | Domainとアプリ全体の実装言語 |
 | SwiftUI | 画面表示と操作入力 |
 | Nearby Interaction | 相手との距離・方向の取得 |
-| Multipeer Connectivity | 端末発見、接続、discoveryToken交換、personID交換 |
+| Network.framework | 端末発見、接続、discoveryToken交換、personID交換 |
 | SwiftData | Encounter履歴、累計時間、プロフィールキャッシュのローカル保存 |
 | Supabase | 最新プロフィールの正本と、その取得・更新 |
 | ARKit | 将来の方向表示・空間表現などを検討。必須化の判断は未決定 |
@@ -26,7 +26,7 @@ Presentation → Application → Domainの向きに依存する。Infrastructure
 
 ## データの流れ
 
-1. Multipeer Connectivityで端末を発見・接続し、personIDとdiscoveryTokenを交換する。
+1. Network.frameworkで端末を発見・接続し、personIDとdiscoveryTokenを交換する。
 2. 通信アダプターでpeer・token・personIDを対応付け、Nearby Interactionの計測を開始する。
 3. 距離・方向の観測をSDK非依存のProximityへ変換してApplicationへ渡す。
 4. DomainがEncounter状態とRevealを判定し、ApplicationがSwiftDataへ履歴・累計を保存する。

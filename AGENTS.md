@@ -1,8 +1,8 @@
 # 開発時のルール
 - 実装前に開発ガイド、関連する設計資料とphaseを読み、依頼された範囲だけを変更する。
-- 開発はDomain → SwiftData → Multipeer Connectivity / Nearby Interaction → Supabaseの順に進める。各phaseの受け入れ条件を確認する。
-- Domain層をSwiftUI、NearbyInteraction、MultipeerConnectivity、Supabase SDK、SwiftDataから分離する。SDK型や永続化モデルをDomainに持ち込まない。
-- Nearby Interactionは距離・方向の取得、Multipeer Connectivityは端末発見・接続・token交換・personID交換に使う。
+- 開発はDomain → SwiftData → Network.framework / Nearby Interaction → Supabaseの順に進める。各phaseの受け入れ条件を確認する。
+- Domain層をSwiftUI、NearbyInteraction、Network、Supabase SDK、SwiftDataから分離する。SDK型や永続化モデルをDomainに持ち込まない。
+- Nearby Interactionは距離・方向の取得、Network.frameworkは端末発見・接続・token交換・personID交換に使う。
 - personIDをアプリ固有の永続IDとして扱う。discoveryTokenを永続的なユーザーIDや保存データの主キーに使わない。
 - Supabaseを最新プロフィールの正本、SwiftDataをEncounter履歴・累計時間・プロフィールキャッシュの保存先とする。
 - プロフィールは本人が公開を許可した情報だけを扱う。開示条件を満たしても公開許可を省略しない。

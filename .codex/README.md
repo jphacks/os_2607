@@ -2,11 +2,11 @@
 
 近くにいる人とのEncounterを記録し、Encounterの累計時間に応じてプロフィール情報を段階的に開示するiOSアプリの開発方針。
 
-このディレクトリは将来の設計・実装計画を記録する。実装済み機能を示すものではない。今回の作業はMarkdownの新規作成のみで、実装・設定変更・テストコード追加は行わない。
+このディレクトリは設計・実装計画と検証結果を記録する。全phaseの実装完了を意味しない。2026-10-17はユーザー指定によりUWB距離・方向表示だけを先行実装する。
 
 ## 確認したリポジトリ構成
 
-- `Bloom/`: SwiftUIアプリ。確認時点の画面は初期のHello, world!表示。
+- `Bloom/`: SwiftUIアプリ。UWB距離・方向の確認画面を起動する。機能本体はBloom/NearbyInteraction/配下。
 - `FindingDevicesWithPrecision/`: Nearby InteractionとARKitを利用する参考サンプル。
 - `ImplementingInteractionsBetweenUsersInCloseProximity/`: 端末間の近接計測に関する参考サンプル。
 - `ImplementingProximityBasedInteractionsBetweenAPhoneAndWatch/`: iPhoneとApple Watchの参考サンプル。
@@ -35,4 +35,4 @@
 3. phaseのScope内で実装し、Acceptance criteriaとManual verificationで確認する。
 4. 検証結果と残課題を記録して次のphaseへ進む。
 
-使用予定技術はSwift、SwiftUI、SwiftData、Nearby Interaction、Multipeer Connectivity、Supabase、ARKit。watchOSは将来的な対応とし、初期4phaseの対象外。ARKitの採用範囲も今後決める。
+使用予定技術はSwift、SwiftUI、SwiftData、Nearby Interaction、Network.framework、Supabase、ARKit。watchOSは将来的な対応とし、初期4phaseの対象外。ARKitの採用範囲も今後決める。
