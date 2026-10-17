@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>近くの端末を見つけ、距離・方向を計測するための情報を交換します。</string>
+    <key>NSNearbyInteractionUsageDescription</key>
+    <string>接続した相手の端末までの距離と方向を表示します。</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_bloom-uwb._tcp</string>
+    </array>
+</dict>
+</plist>
