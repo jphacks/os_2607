@@ -1,7 +1,11 @@
 import Foundation
 
 nonisolated struct UWBWireMessage: Codable, Sendable {
-    enum Kind: String, Codable, Sendable { case hello, heartbeat }
+    enum Kind: String, Codable, Sendable {
+        case hello
+        case heartbeat
+    }
+
     let version: Int
     let kind: Kind
     let personID: UUID?
@@ -11,7 +15,12 @@ nonisolated struct UWBWireMessage: Codable, Sendable {
         Self(version: 1, kind: .hello, personID: personID, discoveryToken: token)
     }
 
-    static let heartbeat = Self(version: 1, kind: .heartbeat, personID: nil, discoveryToken: nil)
+    static let heartbeat = Self(
+        version: 1,
+        kind: .heartbeat,
+        personID: nil,
+        discoveryToken: nil
+    )
 
     func validatedHello(localID: UUID) throws -> (UUID, Data) {
         guard version == 1, kind == .hello, let personID, personID != localID,
@@ -30,8 +39,13 @@ nonisolated enum UWBWireCodec {
         let body = try JSONEncoder().encode(message)
         guard body.count <= maximumBytes else { throw UWBFailure.message("通信データが大きすぎます。") }
         let count = UInt32(body.count)
-        return Data([UInt8((count >> 24) & 255), UInt8((count >> 16) & 255),
-                     UInt8((count >> 8) & 255), UInt8(count & 255)]) + body
+        let header = Data([
+            UInt8((count >> 24) & 255),
+            UInt8((count >> 16) & 255),
+            UInt8((count >> 8) & 255),
+            UInt8(count & 255),
+        ])
+        return header + body
     }
 
     static func bodyLength(_ header: Data) throws -> Int {

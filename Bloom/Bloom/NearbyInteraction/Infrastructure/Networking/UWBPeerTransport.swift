@@ -17,7 +17,7 @@ final class UWBPeerTransport {
         defer { endpoints = [:] }
         let browser = NetworkBrowser(for: .bonjour(Self.serviceType), using: parameters.parameters)
             .onStateUpdate { _, state in
-                if case .waiting(let error) = state {
+                if case let .waiting(error) = state {
                     status("端末探索を待機中: \(error.localizedDescription)。ローカルネットワークの許可を確認してください。")
                 }
             }
@@ -33,7 +33,7 @@ final class UWBPeerTransport {
             .onStateUpdate { _, state in
                 switch state {
                 case .ready: status("接続待ち：\(self.serviceName)")
-                case .waiting(let error): status("接続待機中: \(error.localizedDescription)")
+                case let .waiting(error): status("接続待機中: \(error.localizedDescription)")
                 default: break
                 }
             }

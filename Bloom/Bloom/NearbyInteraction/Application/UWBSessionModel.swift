@@ -2,45 +2,81 @@ import Foundation
 import Network
 import Observation
 
+nonisolated enum UWBSessionState: Equatable, Sendable {
+    case idle(status: String)
+    case hosting(status: String)
+    case browsing(peers: [UWBPeer], status: String)
+    case connecting(peerName: String, status: String)
+    case measuring(peerName: String?, observation: UWBObservation?, status: String)
+
+    var status: String {
+        switch self {
+        case let .idle(status), let .hosting(status), let .browsing(_, status),
+             let .connecting(_, status), let .measuring(_, _, status):
+            status
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class UWBSessionModel {
-    private(set) var peers: [UWBPeer] = []
-    private(set) var observation: UWBObservation?
-    private(set) var status = "2台の端末でこの画面を開いてください。"
-    private(set) var isRunning = false
-    private(set) var isConnected = false
-    private(set) var isMock = false
-    private(set) var peerName: String?
+    private enum MeasurementOrigin {
+        case hosting
+        case browsing
+    }
+
+    private(set) var state = UWBSessionState.idle(status: "2台の端末でこの画面を開いてください。")
     let isSupported = NearbyRangingSession.isSupported
 
     @ObservationIgnored private let personID = LocalPersonIdentity.load()
     @ObservationIgnored private var transport = UWBPeerTransport()
     @ObservationIgnored private var task: Task<Void, Never>?
-    @ObservationIgnored private var ranging: NearbyRangingSession?
+    @ObservationIgnored private var coordinator: UWBSessionCoordinator?
     @ObservationIgnored private var generation = UUID()
-    @ObservationIgnored private var lastObservation: ContinuousClock.Instant?
+
+    var peers: [UWBPeer] {
+        guard case let .browsing(peers, _) = state else { return [] }
+        return peers
+    }
+
+    var observation: UWBObservation? {
+        guard case let .measuring(_, observation, _) = state else { return nil }
+        return observation
+    }
+
+    var status: String { state.status }
+
+    var isRunning: Bool {
+        if case .idle = state { false } else { true }
+    }
+
+    var peerName: String? {
+        switch state {
+        case let .connecting(peerName, _): peerName
+        case let .measuring(peerName, _, _): peerName
+        default: nil
+        }
+    }
 
     var localName: String { transport.serviceName }
 
     func host() {
         stop()
         guard requireSupport() else { return }
-        isRunning = true
-        status = "接続を準備しています。"
+        state = .hosting(status: "接続を準備しています。")
         let generation = generation
         let transport = transport
-        task = Task {
+        task = Task { [weak self] in
             do {
-                try await transport.host(status: { [weak self] text in
-                    guard let self, self.generation == generation, !self.isConnected else { return }
-                    self.status = text
-                }, connected: { [weak self] connection in
+                try await transport.host { [weak self] status in
+                    self?.updateHostingStatus(status, generation: generation)
+                } connected: { [weak self] connection in
                     guard let self, self.generation == generation, !Task.isCancelled else { return }
-                    await self.measure(on: connection, generation: generation)
-                })
+                    await self.measure(on: connection, origin: .hosting, generation: generation)
+                }
             } catch {
-                finish(error, generation: generation)
+                self?.finish(error, generation: generation)
             }
         }
     }
@@ -48,173 +84,150 @@ final class UWBSessionModel {
     func browse() {
         stop()
         guard requireSupport() else { return }
-        isRunning = true
-        status = "接続待ちの端末を探しています。"
+        state = .browsing(peers: [], status: "接続待ちの端末を探しています。")
         let generation = generation
         let transport = transport
-        task = Task {
+        task = Task { [weak self] in
             do {
-                try await transport.browse(update: { [weak self] peers in
-                    guard let self, self.generation == generation else { return }
-                    self.peers = peers
-                    self.status = peers.isEmpty ? "相手の端末で「接続を待つ」を押してください。" : "接続する端末を選んでください。"
-                }, status: { [weak self] text in
-                    guard let self, self.generation == generation else { return }
-                    self.status = text
-                })
+                try await transport.browse { [weak self] peers in
+                    self?.updatePeers(peers, generation: generation)
+                } status: { [weak self] status in
+                    self?.updateBrowsingStatus(status, generation: generation)
+                }
             } catch {
-                finish(error, generation: generation)
+                self?.finish(error, generation: generation)
             }
         }
     }
 
     func connect(to peer: UWBPeer) {
         do {
-            // Resolve before cancelling the browser, which clears its endpoint map.
+            // Resolve before stopping the browser, which clears its endpoint map.
             let connection = try transport.connection(to: peer)
             stop()
             guard requireSupport() else { return }
-            isRunning = true
-            peerName = peer.name
+            state = .connecting(peerName: peer.name, status: state.status)
             let generation = generation
             task = Task {
-                await measure(on: connection, generation: generation)
-                guard self.generation == generation else { return }
-                isRunning = false
+                await measure(on: connection, origin: .browsing, generation: generation)
             }
-        } catch { status = error.localizedDescription }
+        } catch {
+            guard case let .browsing(peers, _) = state else { return }
+            state = .browsing(peers: peers, status: error.localizedDescription)
+        }
     }
 
     func stop() {
         generation = UUID()
         task?.cancel()
         task = nil
-        ranging?.stop()
-        ranging = nil
+        coordinator?.stop()
+        coordinator = nil
         transport = UWBPeerTransport()
-        peers = []
-        observation = nil
-        lastObservation = nil
-        peerName = nil
-        isConnected = false
-        isRunning = false
-        isMock = false
-        status = "停止中です。接続方法を選んでください。"
+        state = .idle(status: "停止中です。接続方法を選んでください。")
     }
 
     private func requireSupport() -> Bool {
         guard isSupported else {
-            status = "この端末はUWB計測に対応していません。表示確認にはモックを使えます。"
+            state = .idle(status: "この端末はUWB計測に対応していません。")
             return false
         }
         return true
     }
 
-    private func measure(on connection: NetworkConnection<TCP>, generation: UUID) async {
-        let ranging = NearbyRangingSession()
-        self.ranging = ranging
-        isConnected = true
-        peers = []
-        status = "接続・計測情報を交換しています。"
-        defer {
-            ranging.stop()
-            if self.generation == generation {
-                self.ranging = nil
-                isConnected = false
-                observation = nil
-                lastObservation = nil
-                peerName = nil
-            }
-        }
-        do {
-            let token = try ranging.prepare()
-            let hello = try await withUWBTimeout(seconds: 20) {
-                try await UWBPeerTransport.send(.hello(personID: self.personID, token: token), on: connection)
-                return try await UWBPeerTransport.receive(on: connection)
-            }
-            try Task.checkCancellation()
-            guard self.generation == generation else { return }
-            let (remoteID, remoteToken) = try hello.validatedHello(localID: personID)
-            peerName = peerName ?? "相手 \(remoteID.uuidString.prefix(6))"
-            try ranging.start(personID: remoteID, tokenData: remoteToken)
-            status = "距離・方向を取得中です。端末の背面を相手に向けてください。"
+    private func measure(
+        on connection: NetworkConnection<TCP>,
+        origin: MeasurementOrigin,
+        generation: UUID
+    ) async {
+        let coordinator = UWBSessionCoordinator()
+        self.coordinator = coordinator
+        state = .measuring(
+            peerName: peerName,
+            observation: nil,
+            status: "接続・計測情報を交換しています。"
+        )
+        defer { finishMeasurement(coordinator, origin: origin, generation: generation) }
 
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { @MainActor @Sendable in
-                    for await event in ranging.events {
-                        try Task.checkCancellation()
-                        guard self.generation == generation else { return }
-                        switch event {
-                        case .observation(let observation):
-                            self.observation = observation
-                            self.lastObservation = .now
-                            self.status = observation.direction == nil ? "方向を取得中です。端末を相手に向けてください。" : "計測中"
-                        case .unavailable(let text):
-                            self.observation = nil
-                            self.lastObservation = nil
-                            self.status = text
-                        case .failed(let text): throw UWBFailure.message(text)
-                        }
-                    }
-                }
-                group.addTask { @MainActor @Sendable in
-                    while !Task.isCancelled {
-                        let message = try await withUWBTimeout(seconds: 10) {
-                            try await UWBPeerTransport.receive(on: connection)
-                        }
-                        guard message.kind == .heartbeat, message.personID == nil, message.discoveryToken == nil else {
-                            throw UWBFailure.message("想定外の通信メッセージを受信しました。")
-                        }
-                    }
-                }
-                group.addTask { @MainActor @Sendable in
-                    while !Task.isCancelled {
-                        try await UWBPeerTransport.send(.heartbeat, on: connection)
-                        try await Task.sleep(for: .seconds(2))
-                    }
-                }
-                group.addTask { @MainActor @Sendable in
-                    while !Task.isCancelled {
-                        try await Task.sleep(for: .milliseconds(500))
-                        guard self.generation == generation else { return }
-                        if let last = self.lastObservation, last.duration(to: .now) >= .seconds(3) {
-                            self.observation = nil
-                            self.lastObservation = nil
-                            self.status = "計測値が更新されていません。端末を相手に向けてください。"
-                        }
-                    }
-                }
-                defer { group.cancelAll() }
-                try await group.next()
+        do {
+            try await coordinator.run(on: connection, personID: personID) { [weak self] event in
+                self?.handle(event, generation: generation)
             }
         } catch {
-            guard self.generation == generation, !Task.isCancelled else { return }
-            status = error.localizedDescription + " 接続をやり直してください。"
+            guard isCurrent(generation) else { return }
+            updateMeasurement(status: error.localizedDescription + " 接続をやり直してください。")
         }
+    }
+
+    private func handle(_ event: UWBSessionEvent, generation: UUID) {
+        guard self.generation == generation else { return }
+        switch event {
+        case let .identified(remoteID):
+            let name = peerName ?? "相手 \(remoteID.uuidString.prefix(6))"
+            state = .measuring(
+                peerName: name,
+                observation: nil,
+                status: "距離・方向を取得中です。端末の背面を相手に向けてください。"
+            )
+        case let .observation(observation):
+            state = .measuring(
+                peerName: peerName,
+                observation: observation,
+                status: observation.direction == nil
+                    ? "方向を取得中です。端末を相手に向けてください。"
+                    : "計測中"
+            )
+        case let .unavailable(status):
+            state = .measuring(peerName: peerName, observation: nil, status: status)
+        }
+    }
+
+    private func finishMeasurement(
+        _ coordinator: UWBSessionCoordinator,
+        origin: MeasurementOrigin,
+        generation: UUID
+    ) {
+        coordinator.stop()
+        guard self.generation == generation else { return }
+        self.coordinator = nil
+        let status = state.status
+        switch origin {
+        case .hosting:
+            state = .hosting(status: status)
+        case .browsing:
+            state = .idle(status: status)
+        }
+    }
+
+    private func updateHostingStatus(_ status: String, generation: UUID) {
+        guard self.generation == generation, case .hosting = state else { return }
+        state = .hosting(status: status)
+    }
+
+    private func updatePeers(_ peers: [UWBPeer], generation: UUID) {
+        guard self.generation == generation, case .browsing = state else { return }
+        let status = peers.isEmpty
+            ? "相手の端末で「接続を待つ」を押してください。"
+            : "接続する端末を選んでください。"
+        state = .browsing(peers: peers, status: status)
+    }
+
+    private func updateBrowsingStatus(_ status: String, generation: UUID) {
+        guard self.generation == generation, case let .browsing(peers, _) = state else { return }
+        state = .browsing(peers: peers, status: status)
+    }
+
+    private func updateMeasurement(status: String) {
+        guard case let .measuring(peerName, observation, _) = state else { return }
+        state = .measuring(peerName: peerName, observation: observation, status: status)
+    }
+
+    private func isCurrent(_ generation: UUID) -> Bool {
+        self.generation == generation && !Task.isCancelled
     }
 
     private func finish(_ error: any Error, generation: UUID) {
-        guard self.generation == generation, !Task.isCancelled else { return }
-        isRunning = false
-        peers = []
-        status = error.localizedDescription
-    }
-
-    func startMock() {
-        stop()
-        isRunning = true
-        isMock = true
-        isConnected = true
-        peerName = "モック端末"
-        task = Task {
-            do {
-                for await sample in UWBMockSource.samples() {
-                    try Task.checkCancellation()
-                    observation = sample
-                    status = sample == nil ? "モック：観測欠損" : "モック：距離・方向の表示確認"
-                }
-            } catch { /* A stopped demo must not overwrite the next session. */ }
-        }
+        guard isCurrent(generation) else { return }
+        state = .idle(status: error.localizedDescription)
     }
 }
-

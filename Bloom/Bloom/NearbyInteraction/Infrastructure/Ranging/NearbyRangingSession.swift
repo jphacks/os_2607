@@ -83,8 +83,7 @@ final class NearbyRangingSession: NSObject, @preconcurrency NISessionDelegate {
         guard session === self.session else { return }
         switch reason {
         case .timeout:
-            continuation.yield(.unavailable("相手を見失いました。端末を相手に向けてください。"))
-            if let configuration { session.run(configuration) }
+            continuation.yield(.failed("相手を見失いました。再接続してください。"))
         case .peerEnded:
             continuation.yield(.failed("相手が計測を終了しました。再接続してください。"))
         @unknown default:
@@ -94,6 +93,24 @@ final class NearbyRangingSession: NSObject, @preconcurrency NISessionDelegate {
 
     func session(_ session: NISession, didInvalidateWith error: any Error) {
         guard session === self.session else { return }
-        continuation.yield(.failed("計測できません: \(error.localizedDescription)。設定の「Nearby Interaction」の許可を確認してください。"))
+        continuation.yield(.failed(invalidationMessage(for: error)))
+    }
+
+    private func invalidationMessage(for error: any Error) -> String {
+        switch error {
+        case NIError.userDidNotAllow:
+            "Nearby Interactionが許可されていません。設定で許可してから再接続してください。"
+        case NIError.incompatiblePeerDevice:
+            "相手の端末はこのUWB計測に対応していません。"
+        case NIError.activeSessionsLimitExceeded,
+             NIError.activeExtendedDistanceSessionsLimitExceeded:
+            "同時に利用できるUWBセッション数を超えました。ほかの計測を終了してから再接続してください。"
+        case NIError.invalidConfiguration:
+            "計測情報が無効です。相手との接続をやり直してください。"
+        case NIError.resourceUsageTimeout:
+            "UWBセッションがタイムアウトしました。相手との接続をやり直してください。"
+        default:
+            "計測できません: \(error.localizedDescription)。再接続してください。"
+        }
     }
 }

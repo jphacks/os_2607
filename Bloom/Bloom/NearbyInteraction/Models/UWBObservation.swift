@@ -45,6 +45,8 @@ nonisolated struct UWBPeer: Identifiable, Sendable, Equatable {
 nonisolated enum UWBFailure: LocalizedError, Sendable {
     case message(String)
     var errorDescription: String? {
-        switch self { case .message(let text): text }
+        switch self {
+        case let .message(text): text
+        }
     }
 }
