@@ -1,6 +1,6 @@
 import Foundation
 
-struct ProfileContent: Identifiable, Equatable, Sendable {
+struct ProfileContent: Identifiable, Equatable, Sendable, Codable {
     let id: UUID
     let profileID: UUID
     var type: ProfileContentType

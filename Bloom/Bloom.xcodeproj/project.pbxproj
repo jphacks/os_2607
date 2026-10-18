@@ -22,14 +22,20 @@
 
 /* Begin PBXFileReference section */
 		99B2C7D63083451A0062B42C /* Bloom.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bloom.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B10000000000000000000004 /* Bloom/backend/Config/Supabase.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Bloom/backend/Config/Supabase.xcconfig; sourceTree = SOURCE_ROOT; };
+		B10000000000000000000004 /* Bloom/Backend/Config/Supabase.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Bloom/Backend/Config/Supabase.xcconfig; sourceTree = SOURCE_ROOT; };
+		B20000000000000000000001 /* BloomUWBTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = BloomUWBTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
 		B10000000000000000000005 /* Exceptions for "Bloom" folder in "Bloom" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				backend/Config/Supabase.local.xcconfig,
+				Backend/Config/Info.plist,
+				Backend/Config/Supabase.local.xcconfig,
+				Backend/Profile/ProfileRepository.swift,
+				BloomApp.swift,
+				Frontend/UWBConnectionService.swift,
+				NearbyInteraction/Resources/UWBInfo.plist,
 			);
 			target = 99B2C7D53083451A0062B42C /* Bloom */;
 		};
@@ -73,7 +79,7 @@
 		640465FB3083AEE30054C967 /* Recovered References */ = {
 			isa = PBXGroup;
 			children = (
-				B10000000000000000000004 /* Bloom/backend/Config/Supabase.xcconfig */,
+				B10000000000000000000004 /* Bloom/Backend/Config/Supabase.xcconfig */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -92,7 +98,7 @@
 			isa = PBXGroup;
 			children = (
 				99B2C7D63083451A0062B42C /* Bloom.app */,
-				4D5966A23083C2BB0018093E /* BloomUWBTests.xctest */,
+				B20000000000000000000001 /* BloomUWBTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -120,7 +126,7 @@
 			packageProductDependencies = (
 			);
 			productName = BloomUWBTests;
-			productReference = 4D5966A23083C2BB0018093E /* BloomUWBTests.xctest */;
+			productReference = B20000000000000000000001 /* BloomUWBTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		99B2C7D53083451A0062B42C /* Bloom */ = {
@@ -396,7 +402,7 @@
 		};
 		99B2C7E23083451C0062B42C /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B10000000000000000000004 /* Bloom/backend/Config/Supabase.xcconfig */;
+			baseConfigurationReference = B10000000000000000000004 /* Bloom/Backend/Config/Supabase.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -405,7 +411,7 @@
 				DEVELOPMENT_TEAM = 8UHZ85W886;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Bloom/backend/Config/Info.plist;
+				INFOPLIST_FILE = AppInfo.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -431,7 +437,7 @@
 		};
 		99B2C7E33083451C0062B42C /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B10000000000000000000004 /* Bloom/backend/Config/Supabase.xcconfig */;
+			baseConfigurationReference = B10000000000000000000004 /* Bloom/Backend/Config/Supabase.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -440,7 +446,7 @@
 				DEVELOPMENT_TEAM = 8UHZ85W886;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Bloom/backend/Config/Info.plist;
+				INFOPLIST_FILE = AppInfo.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

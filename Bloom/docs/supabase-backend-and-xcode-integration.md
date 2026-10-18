@@ -14,11 +14,11 @@ Bloom iOSアプリからSupabase AuthとData APIを利用するbackendを追加�
 
 両テーブルでRLSを有効にし、本人所有条件を`auth.uid()`で確認するPolicyを設定した。本人は自分の情報を読み書きできる。別の認証ユーザーは、`is_discoverable = true`のProfileと、そのProfileの`is_public = true`のContentだけを読める。ProfileとContentのUPDATE Policyには`USING`と`WITH CHECK`の両方がある。更新日時Triggerと`(profile_id, display_order)` Indexも作成した。
 
-適用したSQLは[backend/Database/schema.sql](../Bloom/backend/Database/schema.sql)に保存している。MCPでの適用後にテーブル、制約、Index、RLS Policyを再取得し、トランザクションを最後にrollbackする権限検証も実行した。検証用データは残していない。SecurityおよびPerformance Advisorsの警告は0件だった。
+適用したSQLは[Backend/Database/schema.sql](../Bloom/Backend/Database/schema.sql)に保存している。MCPでの適用後にテーブル、制約、Index、RLS Policyを再取得し、トランザクションを最後にrollbackする権限検証も実行した。検証用データは残していない。SecurityおよびPerformance Advisorsの警告は0件だった。
 
 ## Swift backend
 
-`Bloom/backend/`にDomain Model、入出力DTO、Mapper、Supabase Swift SDKを使うAPI Client、Auth Repository、Profile Repository、Mock、Validation、Errorを置いた。SwiftUI画面は`SupabaseClient`やDTOを直接参照せず、Repositoryを受け取る。
+`Bloom/Backend/`にDomain Model、入出力DTO、Mapper、Supabase Swift SDKを使うAPI Client、Auth Repository、Profile Repository、Mock、Validation、Errorを置いた。SwiftUI画面は`SupabaseClient`やDTOを直接参照せず、Repositoryを受け取る。
 
 ProfileのGET／POST／PATCH、Profile ContentのGET／POST／PATCH／DELETEを実装した。GET結果はDTOからDomain Modelへ変換し、不正なUUID・日時・content_typeを補完せずエラーにする。Repositoryは入力の空白除去、optional空文字のnil化、長さ・URL・負数検証、エラー変換、Contentの安定ソートを担当する。
 
@@ -35,7 +35,7 @@ Supabase URLとPublishable Keyは`Supabase.local.xcconfig`からビルド設定�
 File System Synchronized Groupに、同じファイル名を持つSwiftソースが複数あったため、Xcodeが同一の`.stringsdata`出力先へ複数のビルドコマンドを割り当てていた。
 
 - `Bloom/BloomApp.swift`と`Bloom/Frontend/BloomApp.swift`が重複していた。起動画面を持つ`Frontend/BloomApp.swift`を使い、ルート直下の旧`BloomApp.swift`をBloomターゲットから除外した。
-- `Bloom/backend/Profile/ProfileRepository.swift`と`Bloom/backend/Repositories/ProfileRepository.swift`が重複していた。新backendのRepositoryを使い、旧ローカルRepositoryファイルをBloomターゲットから除外した。
+- `Bloom/Backend/Profile/ProfileRepository.swift`と`Bloom/Backend/Repositories/ProfileRepository.swift`が重複していた。新backendのRepositoryを使い、旧ローカルRepositoryファイルをBloomターゲットから除外した。
 - 古いローカルProfile実装の型名も新backendの型と重複していたため、同じ除外でコンパイル対象から外した。ファイルは削除していない。
 - 共有SchemeのRunおよびTest環境に`IDEPreferLogStreaming=YES`を加え、Xcodeのログ初期化タイムアウトへの推奨設定を反映した。
 

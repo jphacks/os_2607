@@ -26,3 +26,20 @@ enum BackendError: Error, Equatable, Sendable {
         return BackendError.server
     }
 }
+
+
+extension BackendError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .configuration: "接続設定を読み込めませんでした。"
+        case .unauthenticated: "ログイン状態を確認してください。"
+        case .forbidden: "この操作は許可されていません。"
+        case .notFound: "情報が見つからないか、公開されていません。"
+        case .conflict: "すでに登録されています。再読み込みしてください。"
+        case .invalidResponse: "取得した情報を読み込めませんでした。"
+        case .network: "通信できませんでした。接続を確認して再試行してください。"
+        case .server: "処理に失敗しました。時間をおいて再試行してください。"
+        case let .validation(error): error.localizedDescription
+        }
+    }
+}

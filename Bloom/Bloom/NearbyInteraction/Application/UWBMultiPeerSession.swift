@@ -8,7 +8,10 @@ import Observation
 /// async clients can consume `events`. The API doesn't expose Network or Nearby Interaction types.
 @MainActor
 @Observable
-final class UWBMultiPeerSession {
+final class UWBMultiPeerSession: NearbySession {
+    private(set) var pendingConnectionIDs: [UUID] = []
+    @ObservationIgnored private var pendingConnections: [UUID: NetworkConnection<TCP>] = [:]
+    @ObservationIgnored private let requiresApproval: Bool
     private(set) var discoveredPeers: [UWBPeer] = []
     private var connectionStore = UWBMultiPeerConnectionStore()
     let isSupported = NearbyRangingSession.isSupported
@@ -22,7 +25,8 @@ final class UWBMultiPeerSession {
     @ObservationIgnored private var browsingTask: Task<Void, Never>?
     @ObservationIgnored private var connectionSessions: [UUID: UWBPeerConnectionSession] = [:]
 
-    init(personID: UUID = LocalPersonIdentity.load()) {
+    init(personID: UUID = LocalPersonIdentity.load(), requiresApproval: Bool = false) {
+        self.requiresApproval = requiresApproval
         self.personID = personID
         let stream = AsyncStream<UWBMultiPeerEvent>.makeStream(bufferingPolicy: .bufferingNewest(64))
         events = stream.stream
@@ -49,7 +53,7 @@ final class UWBMultiPeerSession {
                 try await transport.host(connectionCapacity: .unlimited) { [weak self] status in
                     self?.emit(.statusChanged(status))
                 } connected: { [weak self] connection in
-                    self?.startConnection(on: connection, peerName: nil, discoveryID: nil)
+                    self?.receiveConnection(connection)
                 }
             } catch is CancellationError {
                 // Explicit stop.
@@ -58,6 +62,25 @@ final class UWBMultiPeerSession {
             }
             self?.hostingTask = nil
         }
+    }
+
+    private func receiveConnection(_ connection: NetworkConnection<TCP>) {
+        guard requiresApproval else { startConnection(on: connection, peerName: nil, discoveryID: nil); return }
+        guard pendingConnectionIDs.count < 8 else { return }
+        let id = UUID()
+        pendingConnections[id] = connection
+        pendingConnectionIDs.append(id)
+    }
+
+    func acceptConnection(id: UUID) {
+        guard let connection = pendingConnections.removeValue(forKey: id) else { return }
+        pendingConnectionIDs.removeAll { $0 == id }
+        startConnection(on: connection, peerName: nil, discoveryID: nil)
+    }
+
+    func rejectConnection(id: UUID) {
+        pendingConnections[id] = nil
+        pendingConnectionIDs.removeAll { $0 == id }
     }
 
     func stopHosting() {
@@ -114,6 +137,7 @@ final class UWBMultiPeerSession {
     }
 
     func stop() {
+        pendingConnections = [:]; pendingConnectionIDs = []
         stopHosting()
         stopBrowsing()
         connections.map(\.id).forEach(disconnect(id:))

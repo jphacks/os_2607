@@ -17,6 +17,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "99B2C7D53083451A0062B42C"
                BuildableName = "Bloom.app"
+               BlueprintName = "Bloom"
                ReferencedContainer = "container:Bloom.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -36,6 +37,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "4D5966A13083C2BB0018093E"
                BuildableName = "BloomUWBTests.xctest"
+               BlueprintName = "BloomUWBTests"
                ReferencedContainer = "container:Bloom.xcodeproj">
             </BuildableReference>
          </TestableReference>
@@ -58,6 +60,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "99B2C7D53083451A0062B42C"
             BuildableName = "Bloom.app"
+            BlueprintName = "Bloom"
             ReferencedContainer = "container:Bloom.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -74,6 +77,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "99B2C7D53083451A0062B42C"
             BuildableName = "Bloom.app"
+            BlueprintName = "Bloom"
             ReferencedContainer = "container:Bloom.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

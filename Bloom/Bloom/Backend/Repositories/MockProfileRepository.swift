@@ -92,6 +92,7 @@ private final class MockProfileStore: ProfileAPIProtocol, ProfileContentAPIProto
         guard contents[id]?.profileID == userID else { throw BackendError.notFound }
         contents.removeValue(forKey: id)
     }
+    func userChanges() -> AsyncStream<AuthUser?> { AsyncStream { $0.finish() } }
     func currentUser() async throws -> AuthUser? { AuthUser(id: userID, email: nil) }
     func signUp(email: String, password: String) async throws { throw BackendError.configuration }
     func signIn(email: String, password: String) async throws { throw BackendError.configuration }

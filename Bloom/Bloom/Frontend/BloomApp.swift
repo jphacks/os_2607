@@ -2,14 +2,55 @@ import SwiftUI
 
 @main
 struct BloomApp: App {
-    @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding = false
+    @State private var session: AppSessionModel?
+    @State private var configurationError: String?
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
-            if didCompleteOnboarding {
-                HomeView()
-            } else {
-                AuthFlowView()
+            Group {
+                if let session {
+                    SessionRootView(session: session)
+                        .task { await session.observeSession() }
+                } else if let configurationError {
+                    ContentUnavailableView {
+                        Label("起動できませんでした", systemImage: "exclamationmark.triangle")
+                    } description: { Text(configurationError) } actions: {
+                        Button("再試行", action: configure)
+                    }
+                } else { ProgressView("読み込み中").task { configure() } }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await session?.resume() } }
+                else if phase == .background { session?.suspend() }
+            }
+        }
+    }
+    private func configure() {
+        do {
+            let dependencies = BackendDependencies.live(config: try SupabaseConfig.load())
+            let store = try SwiftDataLocalStore()
+            session = AppSessionModel(auth: dependencies.authRepository, profiles: dependencies.profileRepository,
+                store: store, makeNearby: { UWBMultiPeerSession(personID: $0, requiresApproval: true) })
+            configurationError = nil
+        } catch { configurationError = error.localizedDescription }
+    }
+}
+
+private struct SessionRootView: View {
+    let session: AppSessionModel
+    var body: some View {
+        switch session.phase {
+        case .loading: ProgressView("ログイン状態を確認中")
+        case .signedOut, .needsProfile: AuthFlowView(session: session)
+        case .ready:
+            if let encounters = session.encounters { HomeView(session: session, proximity: encounters) }
+        case .failed:
+            ContentUnavailableView {
+                Label("接続を確認してください", systemImage: "wifi.exclamationmark")
+            } description: { Text(session.errorMessage ?? "情報を取得できませんでした") } actions: {
+                Button("再試行") { Task { await session.restore() } }
+                Button("ログアウト") { Task { await session.signOut() } }
             }
         }
     }
@@ -25,11 +66,9 @@ enum BloomPalette {
 }
 
 struct EncounterPerson: Identifiable {
-    let id: Int
+    let id: UUID
     let name: String
     let subtitle: String
-    let imageSymbol: String
-    let tint: Color
     let distance: String
     let currentTime: String
     let totalTime: String
@@ -39,27 +78,45 @@ struct EncounterPerson: Identifiable {
     let revealedInterests: [String]
     let isEncountering: Bool
     let isConnection: Bool
-
+    var imageSymbol: String { "person.fill" }
+    var tint: Color { Color(red: 0.84, green: 0.89, blue: 0.98) }
     var progress: Double {
         guard secondsToNextReveal > 0 else { return 1 }
-        return min(max(Double(totalSeconds) / Double(secondsToNextReveal), 0.08), 1)
+        return min(max(Double(totalSeconds) / Double(secondsToNextReveal), 0), 1)
+    }
+}
+
+extension EncounterCoordinator {
+    func person(_ id: UUID) -> EncounterPerson {
+        let profile = publicProfiles[id]?.profile
+        let connection = nearby.connections.first { $0.personID == id }
+        let seconds = Int(totalSeconds(for: id))
+        let visibleFields = fields(for: id)
+        let next = visibleFields.filter { $0.value == nil }.min { $0.requiredSeconds < $1.requiredSeconds }
+        return EncounterPerson(id: id, name: profile?.displayName ?? "公開情報なし",
+            subtitle: profile?.affiliation ?? "",
+            distance: connection?.observation?.distanceMeters.map { String(format: "%.1f m", $0) } ?? "—",
+            currentTime: activePeople.contains(id) ? Self.duration(currentSeconds(for: id)) : "終了",
+            totalTime: Self.duration(Double(seconds)), totalSeconds: seconds,
+            secondsToNextReveal: next?.requiredSeconds ?? 0, nextReveal: next?.title ?? "公開待ちの項目なし",
+            revealedInterests: visibleFields.filter { $0.value != nil }.map(\.title),
+            isEncountering: activePeople.contains(id), isConnection: connection?.observation != nil)
+    }
+    static func duration(_ seconds: TimeInterval) -> String {
+        let value = max(0, Int(seconds))
+        return "\(value / 60)分\(value % 60)秒"
     }
 }
 
 struct HomeView: View {
-    @State private var isParticipating = false
+    let session: AppSessionModel
+    let proximity: EncounterCoordinator
     @State private var selectedTab = 0
     @State private var selectedPerson: EncounterPerson?
     @State private var selectedConversation: String?
-    @StateObject private var proximity = UWBConnectionService()
-    @AppStorage("profileName") private var profileName = "あおい"
-
-    private let nearbyPeople = [
-        EncounterPerson(id: 1, name: "大輔", subtitle: "初めて会いました", imageSymbol: "person.fill", tint: Color(red: 0.84, green: 0.89, blue: 0.98), distance: "2.4 m", currentTime: "01:24", totalTime: "1分24秒", totalSeconds: 84, secondsToNextReveal: 180, nextReveal: "好きなこと", revealedInterests: [], isEncountering: true, isConnection: false),
-        EncounterPerson(id: 2, name: "なつみ", subtitle: "また会いました", imageSymbol: "person.fill", tint: Color(red: 0.98, green: 0.88, blue: 0.83), distance: "3.1 m", currentTime: "08:12", totalTime: "8分12秒", totalSeconds: 492, secondsToNextReveal: 900, nextReveal: "最近ハマっていること", revealedInterests: ["カフェ"], isEncountering: true, isConnection: true),
-        EncounterPerson(id: 3, name: "悠斗", subtitle: "今日会いました", imageSymbol: "person.fill", tint: Color(red: 0.87, green: 0.92, blue: 0.83), distance: "—", currentTime: "終了", totalTime: "4分06秒", totalSeconds: 246, secondsToNextReveal: 600, nextReveal: "好きなこと", revealedInterests: [], isEncountering: false, isConnection: true),
-        EncounterPerson(id: 4, name: "みさき", subtitle: "以前会いました", imageSymbol: "person.fill", tint: Color(red: 0.94, green: 0.88, blue: 0.96), distance: "—", currentTime: "終了", totalTime: "18分", totalSeconds: 1080, secondsToNextReveal: 900, nextReveal: "最近ハマっていること", revealedInterests: ["音楽"], isEncountering: false, isConnection: true)
-    ]
+    private var isParticipating: Bool { proximity.isParticipating }
+    private var profileName: String { session.profile?.displayName ?? "" }
+    private var nearbyPeople: [EncounterPerson] { proximity.personIDs.map(proximity.person) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,29 +129,21 @@ struct HomeView: View {
         .foregroundStyle(BloomPalette.ink)
         .preferredColorScheme(.light)
         .fullScreenCover(item: $selectedPerson) { person in
-            EncounterProfileView(person: person, proximity: proximity)
+            EncounterProfileView(personID: person.id, proximity: proximity)
         }
-        .onAppear {
-            if isParticipating { proximity.startAdvertising(profileName: profileName) }
-        }
-        .onChange(of: isParticipating) { _, isOn in
-            if isOn {
-                proximity.startAdvertising(profileName: profileName)
-            } else {
-                proximity.stop()
-            }
-        }
-        .onChange(of: profileName) { _, name in
-            if isParticipating { proximity.startAdvertising(profileName: name) }
-        }
+        .task { proximity.resume() }
         .alert("UWB接続リクエスト", isPresented: Binding(
-            get: { proximity.pendingRequestFrom != nil },
+            get: { !proximity.nearby.pendingConnectionIDs.isEmpty },
             set: { _ in }
         )) {
-            Button("許可") { proximity.acceptPendingRequest() }
-            Button("拒否", role: .cancel) { proximity.rejectPendingRequest() }
+            Button("許可") {
+                if let id = proximity.nearby.pendingConnectionIDs.first { proximity.nearby.acceptConnection(id: id) }
+            }
+            Button("拒否", role: .cancel) {
+                if let id = proximity.nearby.pendingConnectionIDs.first { proximity.nearby.rejectConnection(id: id) }
+            }
         } message: {
-            Text("\(proximity.pendingRequestFrom ?? "近くの人")さんから接続リクエストが届きました。許可するとUWBで距離を測定します。")
+            Text("近くの端末と人物IDを交換し、距離を計測します。接続を許可しますか？")
         }
     }
 
@@ -104,11 +153,11 @@ struct HomeView: View {
         case 1:
             MessagesPage(selectedConversation: $selectedConversation)
         case 2:
-            EncounterHistoryPage(records: proximity.records, people: nearbyPeople.filter { !$0.isEncountering }) { person in
+            EncounterHistoryPage(proximity: proximity) { person in
                 selectedPerson = person
             }
         case 3:
-            MyProfilePage(profileName: $profileName)
+            MyProfilePage(session: session)
         default:
             homePage
         }
@@ -125,6 +174,19 @@ struct HomeView: View {
                     pausedCard
                 }
                 connectBanner
+                Text(proximity.status).font(.caption).foregroundStyle(BloomPalette.muted)
+                if let error = proximity.errorMessage {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                    Button("保存を再試行") { proximity.retrySaves() }
+                }
+                if isParticipating {
+                    Text("接続する端末を選択").font(.headline)
+                    Text("端末名は一時的な名前です。相手と確認して選択してください。")
+                        .font(.caption).foregroundStyle(BloomPalette.muted)
+                    ForEach(proximity.nearby.discoveredPeers) { peer in
+                        Button(peer.name) { proximity.connect(to: peer) }
+                    }
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
@@ -177,12 +239,13 @@ struct HomeView: View {
                 Spacer()
                 HStack(spacing: 5) {
                     Circle().fill(BloomPalette.green).frame(width: 7, height: 7)
-                    Text("近くに2人")
+                    Text("接続中 \(proximity.nearby.connections.filter { $0.observation != nil }.count)人")
                 }
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(BloomPalette.green)
             }
 
+            if nearbyPeople.isEmpty { Text("まだ出会いがありません").font(.caption) }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach(nearbyPeople) { person in
                     Button { selectedPerson = person } label: { personCard(person) }
@@ -247,7 +310,7 @@ struct HomeView: View {
 
     private var connectBanner: some View {
         Button {
-            isParticipating.toggle()
+            if isParticipating { proximity.stop() } else { proximity.start() }
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
@@ -333,8 +396,9 @@ struct HomeView: View {
 }
 
 private struct EncounterProfileView: View {
-    let person: EncounterPerson
-    @ObservedObject var proximity: UWBConnectionService
+    let personID: UUID
+    let proximity: EncounterCoordinator
+    private var person: EncounterPerson { proximity.person(personID) }
     @Environment(\.dismiss) private var dismiss
     @State private var isShowingDM = false
 
@@ -424,47 +488,21 @@ private struct EncounterProfileView: View {
     }
 
     private var profileDetails: some View {
-        let details: [(title: String, text: String, minutes: Int)] = [
-            ("自己紹介", person.id == 2 ? "新しいカフェを探すのが好きです。休日は気になるお店を巡っています。" : "好きなことを通じて、いろんな人と話したいです。", 0),
-            ("好きなこと", person.id == 2 ? "カフェ巡り、写真、散歩" : "音楽、映画、旅行", 3),
-            ("最近ハマっていること", "街の小さな喫茶店を見つけること", 10),
-            ("好きな音楽", "インディーポップ、映画のサウンドトラック", 20),
-            ("リンク・SNS", "https://example.com/profile", 35),
-            ("写真・動画", "お気に入りの場所や日常の写真", 50)
-        ]
-        return VStack(alignment: .leading, spacing: 12) {
-            Text("プロフィール").font(.system(size: 16, weight: .bold))
-            ForEach(Array(details.enumerated()), id: \.offset) { _, detail in
-                let isUnlocked = person.totalSeconds >= detail.minutes * 60
+        VStack(alignment: .leading, spacing: 12) {
+            Text("プロフィール").font(.headline)
+            if let message = proximity.profileMessages[personID] { Text(message).font(.caption) }
+            Button("再読み込み") { proximity.refreshProfile(personID) }
+            if let bio = proximity.publicProfiles[personID]?.profile.bio { Text(bio).font(.body) }
+            ForEach(proximity.fields(for: personID)) { field in
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(detail.title).font(.system(size: 12, weight: .semibold))
-                        Spacer()
-                        if detail.minutes > 0 {
-                            Label(isUnlocked ? "公開中" : "累計\(detail.minutes)分で公開", systemImage: isUnlocked ? "lock.open.fill" : "lock.fill")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(isUnlocked ? BloomPalette.green : BloomPalette.muted)
-                        }
-                    }
-                    if isUnlocked {
-                        Text(detail.text)
-                            .font(.system(size: 12))
-                            .foregroundStyle(BloomPalette.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        Text("一緒に過ごす時間が増えると公開されます")
-                            .font(.system(size: 11))
-                            .foregroundStyle(BloomPalette.muted)
-                    }
+                    Text(field.title).font(.headline)
+                    if let value = field.value { Text(value) }
+                    else { Label("累計\(field.requiredSeconds)秒で公開", systemImage: "lock.fill") }
                 }
+                .font(.subheadline)
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.white, in: RoundedRectangle(cornerRadius: 17))
-                .scrollTransition(.interactive, axis: .vertical) { content, phase in
-                    content
-                        .scaleEffect(phase.isIdentity ? 1.04 : 0.94)
-                        .opacity(phase.isIdentity ? 1 : 0.78)
-                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -491,169 +529,14 @@ private struct EncounterProfileView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var revealedSection: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack {
-                Text("公開されたこと")
-                    .font(.system(size: 16, weight: .bold))
-                Spacer()
-                Text("出会いの時間で公開")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(BloomPalette.muted)
-            }
-            HStack(spacing: 9) {
-                revealChip(icon: "person.fill", title: person.name)
-                revealChip(icon: "photo", title: "プロフィール写真")
-                ForEach(person.revealedInterests, id: \.self) { item in
-                    revealChip(icon: "sparkles", title: item)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func revealChip(icon: String, title: String) -> some View {
-        Label(title, systemImage: icon)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(BloomPalette.blue)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 9)
-            .background(BloomPalette.blue.opacity(0.08), in: Capsule())
-    }
-
-    private var lockedSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("これから公開")
-                    .font(.system(size: 16, weight: .bold))
-                Spacer()
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(BloomPalette.muted)
-                Text("公開設定")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(BloomPalette.muted)
-            }
-            ForEach([person.nextReveal, "自己紹介", "リンク", "好きな音楽", "写真・動画"], id: \.self) { item in
-                HStack(spacing: 11) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(BloomPalette.muted)
-                        .frame(width: 34, height: 34)
-                        .background(BloomPalette.canvas, in: Circle())
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item).font(.system(size: 11, weight: .semibold))
-                        Text(item == person.nextReveal ? "次に公開 · 累計時間で解除" : "本人が公開条件を設定")
-                            .font(.system(size: 9)).foregroundStyle(BloomPalette.muted)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(BloomPalette.muted.opacity(0.7))
-                }
-                .padding(.vertical, 2)
-            }
-            ProgressView(value: person.progress).tint(BloomPalette.blue)
-            Text("公開される内容と必要な累計時間は、本人が設定できます。")
-                .font(.system(size: 10)).foregroundStyle(BloomPalette.muted)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(15)
-        .background(.white, in: RoundedRectangle(cornerRadius: 20))
-    }
-
-    private var sharedProfileInformation: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            Text("プロフィール情報").font(.system(size: 16, weight: .bold))
-            if person.isConnection {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "text.alignleft").foregroundStyle(BloomPalette.blue).frame(width: 22)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("ひとこと").font(.system(size: 10)).foregroundStyle(BloomPalette.muted)
-                            Text(person.id == 2 ? "新しいカフェを探すのが好きです。" : "好きなことを通じて、いろんな人と話したいです。")
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                    }
-                    if !person.revealedInterests.isEmpty {
-                        HStack(spacing: 10) {
-                            Image(systemName: "music.note").foregroundStyle(BloomPalette.blue).frame(width: 22)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(person.revealedInterests.contains("音楽") ? "好きな音楽" : "好きなこと")
-                                    .font(.system(size: 10)).foregroundStyle(BloomPalette.muted)
-                                Text(person.revealedInterests.joined(separator: " · "))
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                        }
-                    }
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white, in: RoundedRectangle(cornerRadius: 18))
-            } else {
-                HStack(spacing: 9) {
-                    Image(systemName: "lock.fill").foregroundStyle(BloomPalette.muted)
-                    Text("公開された項目はここに表示されます")
-                        .font(.system(size: 11)).foregroundStyle(BloomPalette.muted)
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white, in: RoundedRectangle(cornerRadius: 18))
-            }
-
-            HStack(spacing: 10) {
-                mediaTile(icon: "link", title: "URL", isUnlocked: person.isConnection)
-                mediaTile(icon: "music.note", title: "MUSIC", isUnlocked: person.revealedInterests.contains("音楽"))
-                mediaTile(icon: "photo.on.rectangle", title: "写真・動画", isUnlocked: person.revealedInterests.count > 1)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func mediaTile(icon: String, title: String, isUnlocked: Bool) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: isUnlocked ? icon : "lock.fill")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(isUnlocked ? BloomPalette.blue : BloomPalette.muted.opacity(0.6))
-            Text(title).font(.system(size: 9, weight: .medium)).foregroundStyle(BloomPalette.muted)
-        }
-        .frame(maxWidth: .infinity).frame(height: 72)
-        .background(.white, in: RoundedRectangle(cornerRadius: 15))
-    }
-
     private var actionButtons: some View {
-        VStack(spacing: 8) {
-            if !proximity.status.isEmpty {
-                Text(proximity.status)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(proximity.distance != nil && proximity.distance! <= 4 ? BloomPalette.green : BloomPalette.muted)
-                    .lineLimit(1)
-            }
-            HStack(spacing: 10) {
-                Button {
-                    isShowingDM = true
-                } label: {
-                    Label("DM", systemImage: "bubble.left.and.bubble.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(BloomPalette.blue)
-                        .frame(maxWidth: .infinity).frame(height: 48)
-                        .background(BloomPalette.blue.opacity(0.09), in: RoundedRectangle(cornerRadius: 15))
-                }
-                .buttonStyle(.plain)
-                Button { proximity.connect(to: person.name) } label: {
-                    Label(proximity.distance == nil ? "つながる" : "UWB接続中", systemImage: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity).frame(height: 48)
-                        .background(BloomPalette.blue, in: RoundedRectangle(cornerRadius: 15))
-                }
-                .buttonStyle(.plain)
-            }
+        HStack {
+            Button("DM（デモ）") { isShowingDM = true }
+            Spacer()
+            if person.isConnection {
+                Button("接続を終了") { proximity.nearby.disconnect(from: personID) }
+            } else { Text("接続はホームの端末一覧から行えます").font(.caption) }
         }
-        .padding(.horizontal, 2)
-    }
-}
-
-struct HomeView_Previews: PreviewProvider {
-    static var previews: some View {
-        HomeView()
+        .task { proximity.refreshProfile(personID) }
     }
 }

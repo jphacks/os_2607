@@ -1,13 +1,9 @@
 import SwiftUI
 
 struct AuthFlowView: View {
-    private enum Step {
-        case account
-        case profile
-    }
-
-    @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding = false
-    @State private var step: Step = .account
+    let session: AppSessionModel
+    private var isSaving: Bool { session.isBusy }
+    private var errorMessage: String? { session.errorMessage }
     @State private var isCreatingAccount = true
     @State private var email = ""
     @State private var password = ""
@@ -15,20 +11,16 @@ struct AuthFlowView: View {
     @State private var affiliation = ""
     @State private var bio = ""
     @State private var hobby = ""
-    @State private var isDiscoverable = true
-    @State private var isSaving = false
-    @State private var errorMessage: String?
-
-    private let authRepository: any AuthRepository = LocalAuthRepository()
-    private let profileRepository: any ProfileRepository = LocalProfileRepository()
-
+    @State private var isDiscoverable = false
+    @State private var hobbyIsPublic = false
     var body: some View {
         ZStack {
             BloomPalette.canvas.ignoresSafeArea()
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 22) {
                     brandMark
-                    if step == .account {
+                    if let notice = session.notice { Text(notice).font(.callout) }
+                    if session.phase == .signedOut {
                         accountForm
                     } else {
                         profileForm
@@ -41,13 +33,14 @@ struct AuthFlowView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .disabled(isSaving)
         .foregroundStyle(BloomPalette.ink)
         .preferredColorScheme(.light)
         .alert("入力を確認してください", isPresented: Binding(
             get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
+            set: { if !$0 { session.errorMessage = nil } }
         )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
+            Button("OK", role: .cancel) { session.errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
         }
@@ -103,7 +96,7 @@ struct AuthFlowView: View {
 
             Button {
                 isCreatingAccount.toggle()
-                errorMessage = nil
+                session.errorMessage = nil
             } label: {
                 HStack(spacing: 4) {
                     Spacer()
@@ -145,9 +138,9 @@ struct AuthFlowView: View {
 
             Toggle(isOn: $isDiscoverable) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("近くの人に見つけてもらう")
+                    Text("基本プロフィールを公開する")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("あとからプロフィール設定で変更できます")
+                    Text("名前・所属・自己紹介・プロフィール画像をログイン済みユーザーに公開します")
                         .font(.system(size: 10))
                         .foregroundStyle(BloomPalette.muted)
                 }
@@ -156,6 +149,9 @@ struct AuthFlowView: View {
             .padding(14)
             .background(.white, in: RoundedRectangle(cornerRadius: 15))
 
+            Toggle("趣味の公開を許可する", isOn: $hobbyIsPublic)
+            Text("公開する趣味は、一緒に過ごした累計60秒から画面に表示されます。")
+                .font(.caption).foregroundStyle(BloomPalette.muted)
             Button(action: saveProfile) {
                 HStack {
                     Spacer()
@@ -171,7 +167,10 @@ struct AuthFlowView: View {
             .disabled(isSaving || displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .opacity(displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.55 : 1)
 
-            Button("アカウント画面に戻る") { step = .account }
+            if session.errorMessage != nil {
+                Button("保存済みプロフィールを確認") { Task { await session.restore() } }
+            }
+            Button("ログアウトして戻る") { Task { await session.signOut() } }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(BloomPalette.muted)
                 .frame(maxWidth: .infinity)
@@ -189,57 +188,13 @@ struct AuthFlowView: View {
     }
 
     private func submitAccount() {
-        isSaving = true
-        Task {
-            do {
-                if isCreatingAccount {
-                    try await authRepository.signUp(email: email, password: password)
-                    await MainActor.run { step = .profile }
-                } else {
-                    try await authRepository.signIn(email: email, password: password)
-                    await MainActor.run { didCompleteOnboarding = true }
-                }
-            } catch {
-                await MainActor.run { errorMessage = error.localizedDescription }
-            }
-            await MainActor.run { isSaving = false }
-        }
+        Task { await session.authenticate(email: email, password: password, creating: isCreatingAccount) }
     }
 
     private func saveProfile() {
-        let cleanName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanName.isEmpty else { return }
-        isSaving = true
         Task {
-            do {
-                try await profileRepository.createProfile(
-                    ProfileCreateInput(
-                        displayName: cleanName,
-                        affiliation: affiliation.trimmingCharacters(in: .whitespacesAndNewlines),
-                        bio: bio.trimmingCharacters(in: .whitespacesAndNewlines),
-                        avatarPath: nil,
-                        isDiscoverable: isDiscoverable
-                    )
-                )
-
-                let cleanHobby = hobby.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !cleanHobby.isEmpty {
-                    try await profileRepository.createContent(
-                        ProfileContentCreateInput(
-                            type: .text,
-                            title: "趣味",
-                            value: cleanHobby,
-                            unlockAfterSeconds: 60,
-                            displayOrder: 0,
-                            isPublic: true
-                        )
-                    )
-                }
-                await MainActor.run { didCompleteOnboarding = true }
-            } catch {
-                await MainActor.run { errorMessage = error.localizedDescription }
-            }
-            await MainActor.run { isSaving = false }
+            await session.createProfile(name: displayName, affiliation: affiliation, bio: bio, hobby: hobby,
+                isPublic: isDiscoverable, hobbyIsPublic: hobbyIsPublic)
         }
     }
 }

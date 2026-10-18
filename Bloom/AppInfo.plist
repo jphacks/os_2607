@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>SUPABASE_URL</key>
+	<string>$(SUPABASE_URL)</string>
+	<key>SUPABASE_PUBLISHABLE_KEY</key>
+	<string>$(SUPABASE_PUBLISHABLE_KEY)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -24,10 +28,10 @@
 	<true/>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_hello-encounter._tcp</string>
+		<string>_bloom-uwb._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>近くにいるHelloユーザーの端末を見つけ、出会いを記録するためにローカルネットワークを使います。</string>
+	<string>近くにいるBloomユーザーの端末を見つけ、出会いを記録するためにローカルネットワークを使います。</string>
 	<key>NSNearbyInteractionAllowOnceUsageDescription</key>
 	<string>つながる相手との距離をUWBで測り、一緒に過ごした時間を記録します。</string>
 	<key>NSNearbyInteractionUsageDescription</key>
