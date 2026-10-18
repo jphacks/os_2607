@@ -16,7 +16,8 @@ struct ProfileCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            content
+        let reduceMotion = reduceMotion
+        return content
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)

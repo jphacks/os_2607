@@ -46,6 +46,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		4D5966A23083C2BB0018093E /* BloomUWBTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BloomUWBTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4D07DB783084878A00D20B78 /* BloomActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BloomActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		4D07DB7A3084878A00D20B78 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = /System/Library/Frameworks/WidgetKit.framework; sourceTree = "<absolute>"; };
 		4D07DB7C3084878A00D20B78 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = /System/Library/Frameworks/SwiftUI.framework; sourceTree = "<absolute>"; };
@@ -160,6 +161,7 @@
 			isa = PBXGroup;
 			children = (
 				99B2C7D63083451A0062B42C /* Bloom.app */,
+				4D5966A23083C2BB0018093E /* BloomUWBTests.xctest */,
 				4D07DB783084878A00D20B78 /* BloomActivityExtension.appex */,
 			);
 			name = Products;
@@ -210,6 +212,7 @@
 			packageProductDependencies = (
 			);
 			productName = BloomUWBTests;
+			productReference = 4D5966A23083C2BB0018093E /* BloomUWBTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		99B2C7D53083451A0062B42C /* Bloom */ = {

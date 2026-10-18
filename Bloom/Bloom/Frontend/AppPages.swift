@@ -4,10 +4,11 @@ struct EncounterHistoryPage: View {
     let proximity: UWBConnectionService
     let repository: any ProfileRepository
     @State private var confirmsDeletion = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        List {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("重なった時間を、\nあなたの記憶に。")
                         .font(.system(.title, design: .rounded, weight: .bold))
@@ -17,32 +18,36 @@ struct EncounterHistoryPage: View {
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 16)
-            }
-            if let error = proximity.historyError {
-                Section {
-                    Text(error).foregroundStyle(.red)
-                    Button("再試行") { proximity.retryHistory() }
+                if let error = proximity.historyError {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(error).foregroundStyle(.red)
+                        Button("再試行") { proximity.retryHistory() }
+                    }
                 }
-            }
-            if proximity.records.isEmpty {
-                ContentUnavailableView("まだ記録はありません", systemImage: "clock",
-                                       description: Text("近くの人との出会いが終了すると、ここに記録されます。"))
-            } else {
-                Section {
-                    ForEach(EncounterHistorySummary.group(proximity.records)) { summary in
-                        NavigationLink {
-                            HistoricalPersonDetail(summary: summary, repository: repository)
-                        } label: {
-                            EncounterHistoryPersonRow(summary: summary, repository: repository)
+                if proximity.records.isEmpty {
+                    ContentUnavailableView("まだ記録はありません", systemImage: "clock",
+                                           description: Text("近くの人との出会いが終了すると、ここに記録されます。"))
+                } else {
+                    Text("この端末での出会い").font(.title2.bold())
+                    LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize
+                              ? [GridItem(.flexible())]
+                              : [GridItem(.adaptive(minimum: 150), spacing: 16)], spacing: 16) {
+                        ForEach(EncounterHistorySummary.group(proximity.records)) { summary in
+                            NavigationLink {
+                                HistoricalPersonDetail(summary: summary, proximity: proximity, repository: repository)
+                            } label: {
+                                EncounterHistoryPersonCard(summary: summary, repository: repository)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                } header: {
-                    Text("この端末での出会い")
-                } footer: {
-                    Text("接続していない相手も、現在公開されているプロフィールを確認できます。待機中・観測が途切れた時間は含みません。")
+                    Text("カードを開くと、セッションごとのタイトルを保存・確認できます。待機中・観測が途切れた時間は含みません。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            .padding(24).frame(maxWidth: 900).frame(maxWidth: .infinity)
         }
+        .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("出会いの履歴")
         .toolbar {
             Button("履歴を削除", systemImage: "trash", role: .destructive) { confirmsDeletion = true }
