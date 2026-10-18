@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		4D1360A130847C3F00A9C8F5 /* Bloom.icon in Resources */ = {isa = PBXBuildFile; fileRef = 4D1360A030847C3F00A9C8F5 /* Bloom.icon */; };
 		B10000000000000000000001 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = B10000000000000000000002 /* Supabase */; };
 /* End PBXBuildFile section */
 
@@ -21,6 +22,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		4D1360A030847C3F00A9C8F5 /* Bloom.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = Bloom.icon; sourceTree = "<group>"; };
 		99B2C7D63083451A0062B42C /* Bloom.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bloom.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000000000000000000004 /* Bloom/Backend/Config/Supabase.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Bloom/Backend/Config/Supabase.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -88,6 +90,7 @@
 				4D5966A33083C2BB0018093E /* BloomUWBTests */,
 				99B2C7D73083451A0062B42C /* Products */,
 				640465FB3083AEE30054C967 /* Recovered References */,
+				4D1360A030847C3F00A9C8F5 /* Bloom.icon */,
 			);
 			sourceTree = "<group>";
 		};
@@ -201,6 +204,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4D1360A130847C3F00A9C8F5 /* Bloom.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,5 +1,7 @@
 # Frontend Network integration — 2026-10-18
 
+> 後続の認証ID接続、人物プロフィールUI、SwiftData履歴/Revealは [mock-audit.md](mock-audit.md) を参照。以下は最初の通信置換時点の記録。
+
 - Scope: replace Frontend's Multipeer Connectivity sample with the existing `UWBMultiPeerSession` (Network.framework + Nearby Interaction). Phase 3 integration; not completion of Encounter/storage/profile phases.
 - `UWBConnectionService` is now an Observation-based frontend adapter. Participation starts hosting and browsing; discovery uses `_bloom-uwb._tcp`. The active target's `Backend/Config/Info.plist` already declares this service and both usage descriptions.
 - Connect using a discovered `UWBPeer`, never a sample profile's display name. Show connection-specific distance/direction and missing/error states. Exclude the local temporary Bonjour name from discovery results.

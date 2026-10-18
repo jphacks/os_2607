@@ -4,8 +4,7 @@ struct UWBConnectionsView: View {
     let proximity: UWBConnectionService
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("近くの端末").font(.headline)
+        Section("近くの端末") {
             if proximity.isParticipating {
                 Text("この端末：\(proximity.session.localName)").font(.subheadline)
                 Text("相手も参加を開始し、片方の端末で相手の端末名を選んでください。")
@@ -25,7 +24,7 @@ struct UWBConnectionsView: View {
                         Label(peer.name, systemImage: "iphone.radiowaves.left.and.right")
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
                 }
                 ForEach(proximity.session.connections) { connection in
                     UWBConnectionCard(connection: connection) {
@@ -33,17 +32,18 @@ struct UWBConnectionsView: View {
                     }
                 }
                 Button("接続をすべて停止", role: .destructive) { proximity.stop() }
+                    .buttonStyle(.borderless)
+                    .buttonStyle(.borderless)
             } else {
                 Text("参加すると、近くの端末から接続して距離・方向を測定できます。")
                     .font(.subheadline)
                 Button("参加を開始") { proximity.start() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                 if let error = proximity.connectionError {
                     Text(verbatim: error).foregroundStyle(.secondary)
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -73,9 +73,11 @@ private struct UWBConnectionCard: View {
                 Text(verbatim: reason.localizedDescription).foregroundStyle(.secondary)
             }
             Button("切断", role: .destructive, action: disconnect)
+                .buttonStyle(.borderless)
+                .buttonStyle(.borderless)
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 16))
+
     }
 }

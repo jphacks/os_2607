@@ -8,7 +8,6 @@ struct AuthFlowView: View {
         case profile
     }
 
-    @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding = false
     @State private var appleNonce: String?
     @State private var appleRequestState: String?
     @State private var step: Step = .account
@@ -18,7 +17,6 @@ struct AuthFlowView: View {
     @State private var displayName = ""
     @State private var affiliation = ""
     @State private var bio = ""
-    @State private var hobby = ""
     @State private var isDiscoverable = true
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -26,28 +24,82 @@ struct AuthFlowView: View {
 
     let authRepository: any AuthRepository
     let profileRepository: any ProfileRepository
+    let onAuthenticated: () -> Void
+
+    init(authRepository: any AuthRepository, profileRepository: any ProfileRepository,
+         needsProfile: Bool = false, onAuthenticated: @escaping () -> Void) {
+        self.authRepository = authRepository
+        self.profileRepository = profileRepository
+        self.onAuthenticated = onAuthenticated
+        _step = State(initialValue: needsProfile ? .profile : .account)
+    }
 
     var body: some View {
-        ZStack {
-            BloomPalette.canvas.ignoresSafeArea()
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
-                    brandMark
-                    if step == .account {
-                        accountForm
-                    } else {
-                        profileForm
+        NavigationStack {
+            Form {
+                if step == .account {
+                    Section {
+                        SignInWithAppleButton(.continue, onRequest: prepareAppleRequest, onCompletion: completeAppleRequest)
+                            .signInWithAppleButtonStyle(.black)
+                            .frame(height: 50)
+                            .disabled(isSaving)
+                    }
+                    Section("メールでログイン") {
+                        TextField("メールアドレス", text: $email)
+                            .textInputAutocapitalization(.never)
+                            .keyboardType(.emailAddress)
+                            .textContentType(.emailAddress)
+                            .autocorrectionDisabled()
+                        SecureField("パスワード", text: $password)
+                            .textContentType(isCreatingAccount ? .newPassword : .password)
+                        Button(action: submitAccount) {
+                            HStack {
+                                Text(isCreatingAccount ? "アカウントを作成" : "ログイン")
+                                if isSaving { ProgressView() }
+                            }
+                        }
+                        .buttonStyle(.glassProminent)
+                        .disabled(isSaving)
+                        Button(isCreatingAccount ? "登録済みの方はログイン" : "新規登録はこちら") {
+                            isCreatingAccount.toggle()
+                            errorMessage = nil
+                        }
+                        .disabled(isSaving)
+                    }
+                } else {
+                    Section("基本情報") {
+                        TextField("氏名・表示名", text: $displayName)
+                        TextField("所属（任意）", text: $affiliation)
+                        TextField("自己紹介", text: $bio, axis: .vertical)
+                            .lineLimit(3...6)
+                    }
+                    Section {
+                        Toggle("近くの人に見つけてもらう", isOn: $isDiscoverable)
+                    } footer: {
+                        Text("公開する内容は、あとからプロフィールで編集できます。")
+                    }
+                    Section {
+                        Button(action: saveProfile) {
+                            HStack {
+                                Text("保存してはじめる")
+                                if isSaving { ProgressView() }
+                            }
+                        }
+                        .buttonStyle(.glassProminent)
+                        .disabled(isSaving || displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 34)
-                .padding(.bottom, 32)
-                .frame(maxWidth: 520)
-                .frame(maxWidth: .infinity)
+            }
+            .navigationTitle(step == .account ? "Bloom" : "プロフィールを作成")
+            .toolbar {
+                if step == .profile {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("戻る", systemImage: "chevron.backward") { step = .account }
+                            .disabled(isSaving)
+                    }
+                }
             }
         }
-        .foregroundStyle(BloomPalette.ink)
-        .preferredColorScheme(.light)
         .alert(alertTitle, isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -55,146 +107,6 @@ struct AuthFlowView: View {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
-        }
-    }
-
-    private var brandMark: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "bubble.left.and.bubble.right.fill")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(BloomPalette.blue)
-            Text("Bloom")
-                .font(.system(size: 25, weight: .bold, design: .rounded))
-        }
-    }
-
-    private var accountForm: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(isCreatingAccount ? "はじめまして" : "おかえりなさい")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                Text(isCreatingAccount ? "アカウントを作成して、プロフィールを設定しましょう。" : "Bloomにログインしましょう。")
-                    .font(.system(size: 13))
-                    .foregroundStyle(BloomPalette.muted)
-            }
-
-            SignInWithAppleButton(.continue, onRequest: prepareAppleRequest, onCompletion: completeAppleRequest)
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 50)
-                .disabled(isSaving)
-
-            VStack(spacing: 12) {
-                inputField(title: "メールアドレス", placeholder: "name@example.com", text: $email)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.emailAddress)
-                    .autocorrectionDisabled()
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("パスワード").font(.system(size: 12, weight: .semibold))
-                    SecureField("8文字以上", text: $password)
-                        .textContentType(isCreatingAccount ? .newPassword : .password)
-                        .padding(14)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 14))
-                }
-            }
-
-            Button(action: submitAccount) {
-                HStack {
-                    Spacer()
-                    if isSaving { ProgressView().tint(.white) }
-                    else { Text(isCreatingAccount ? "アカウントを作成" : "ログイン") }
-                    Spacer()
-                }
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(.vertical, 15)
-                .background(BloomPalette.blue, in: RoundedRectangle(cornerRadius: 16))
-            }
-            .disabled(isSaving)
-
-            Button {
-                isCreatingAccount.toggle()
-                errorMessage = nil
-            } label: {
-                HStack(spacing: 4) {
-                    Spacer()
-                    Text(isCreatingAccount ? "すでにアカウントをお持ちですか？" : "初めて利用しますか？")
-                        .foregroundStyle(BloomPalette.muted)
-                    Text(isCreatingAccount ? "ログイン" : "新規登録")
-                        .foregroundStyle(BloomPalette.blue)
-                        .fontWeight(.semibold)
-                    Spacer()
-                }
-                .font(.system(size: 12))
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private var profileForm: some View {
-        VStack(alignment: .leading, spacing: 17) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("プロフィールを作成")
-                    .font(.system(size: 27, weight: .bold, design: .rounded))
-                Text("公開する内容は、あとからプロフィールで編集できます。")
-                    .font(.system(size: 12))
-                    .foregroundStyle(BloomPalette.muted)
-            }
-
-            VStack(spacing: 13) {
-                inputField(title: "氏名・表示名", placeholder: "例：あおい", text: $displayName)
-                inputField(title: "所属", placeholder: "学校・会社など（任意）", text: $affiliation)
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("自己紹介").font(.system(size: 12, weight: .semibold))
-                    TextField("自由に自己紹介を書いてください", text: $bio, axis: .vertical)
-                        .lineLimit(3...5)
-                        .padding(14)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 14))
-                }
-                inputField(title: "趣味・話題（任意）", placeholder: "例：音楽、カフェ、散歩", text: $hobby)
-            }
-
-            Toggle(isOn: $isDiscoverable) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("近くの人に見つけてもらう")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("あとからプロフィール設定で変更できます")
-                        .font(.system(size: 10))
-                        .foregroundStyle(BloomPalette.muted)
-                }
-            }
-            .tint(BloomPalette.green)
-            .padding(14)
-            .background(.white, in: RoundedRectangle(cornerRadius: 15))
-
-            Button(action: saveProfile) {
-                HStack {
-                    Spacer()
-                    if isSaving { ProgressView().tint(.white) }
-                    else { Text("保存してはじめる") }
-                    Spacer()
-                }
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(.vertical, 15)
-                .background(BloomPalette.blue, in: RoundedRectangle(cornerRadius: 16))
-            }
-            .disabled(isSaving || displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .opacity(displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.55 : 1)
-
-            Button("アカウント画面に戻る") { step = .account }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(BloomPalette.muted)
-                .frame(maxWidth: .infinity)
-                .buttonStyle(.plain)
-        }
-    }
-
-    private func inputField(title: String, placeholder: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title).font(.system(size: 12, weight: .semibold))
-            TextField(placeholder, text: text)
-                .padding(14)
-                .background(.white, in: RoundedRectangle(cornerRadius: 14))
         }
     }
 
@@ -249,7 +161,7 @@ struct AuthFlowView: View {
     private func finishSignIn() async throws {
         do {
             _ = try await profileRepository.fetchMyProfile()
-            didCompleteOnboarding = true
+            onAuthenticated()
         } catch BackendError.notFound {
             step = .profile
         }
@@ -298,20 +210,7 @@ struct AuthFlowView: View {
                     )
                 )
 
-                let cleanHobby = hobby.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !cleanHobby.isEmpty {
-                    _ = try await profileRepository.createContent(
-                        ProfileContentCreateInput(
-                            type: .text,
-                            title: "趣味",
-                            value: cleanHobby,
-                            unlockAfterSeconds: 60,
-                            displayOrder: 0,
-                            isPublic: true
-                        )
-                    )
-                }
-                await MainActor.run { didCompleteOnboarding = true }
+                await MainActor.run { onAuthenticated() }
             } catch {
                 await MainActor.run { errorMessage = error.localizedDescription }
             }
