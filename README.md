@@ -1,6 +1,6 @@
 # Bloom
 
-[![JPHACKS Thumbnail](https://jphacks.com/wp-content/uploads/2026/07/IMG_5316.png)](https://www.youtube.com/watch?v=piaNsc6ilBI)
+![このプロジェクトのサムネイル画像](Assets/thumbnail.png)
 
 ## 製品概要
 Bloomは、主に大学生をターゲットに、初対面の人たちとのコミュニケーションを活性化し、その人について深く知り、会話に花を咲かせるためのプロジェクトです。
