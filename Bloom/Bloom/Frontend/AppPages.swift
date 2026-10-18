@@ -1,15 +1,8 @@
 import SwiftUI
 
-struct MessagesPage: View {
-    var body: some View {
-        ContentUnavailableView("メッセージは準備中です", systemImage: "bubble.left.and.bubble.right",
-                               description: Text("メッセージの送受信にはまだ対応していません。"))
-            .navigationTitle("メッセージ")
-    }
-}
-
 struct EncounterHistoryPage: View {
     let proximity: UWBConnectionService
+    let repository: any ProfileRepository
     @State private var confirmsDeletion = false
 
     var body: some View {
@@ -19,7 +12,7 @@ struct EncounterHistoryPage: View {
                     Text("重なった時間を、\nあなたの記憶に。")
                         .font(.system(.title, design: .rounded, weight: .bold))
                     Text("\(proximity.records.count)回の出会い")
-                        .font(.headline).foregroundStyle(.indigo)
+                        .font(.headline).foregroundStyle(.pink)
                     Text("終了した出会いの実測時間を、このアカウントの履歴として端末に保存します。")
                         .font(.callout).foregroundStyle(.secondary)
                 }
@@ -36,11 +29,17 @@ struct EncounterHistoryPage: View {
                                        description: Text("近くの人との出会いが終了すると、ここに記録されます。"))
             } else {
                 Section {
-                    ForEach(proximity.records) { record in EncounterHistoryRow(record: record, people: proximity.people) }
+                    ForEach(EncounterHistorySummary.group(proximity.records)) { summary in
+                        NavigationLink {
+                            HistoricalPersonDetail(summary: summary, repository: repository)
+                        } label: {
+                            EncounterHistoryPersonRow(summary: summary, repository: repository)
+                        }
+                    }
                 } header: {
                     Text("この端末での出会い")
                 } footer: {
-                    Text("名前は現在公開を確認できる相手のみ表示します。待機中・観測が途切れた時間は含みません。")
+                    Text("接続していない相手も、現在公開されているプロフィールを確認できます。待機中・観測が途切れた時間は含みません。")
                 }
             }
         }
@@ -54,27 +53,6 @@ struct EncounterHistoryPage: View {
         } message: {
             Text("時間条件を満たしていた公開項目も、時間が再びたまるまで非表示になります。")
         }
-    }
-}
-
-private struct EncounterHistoryRow: View {
-    let record: RecordedEncounter
-    let people: [NearbyPerson]
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            Image(systemName: "leaf")
-                .foregroundStyle(.indigo)
-                .padding(12).background(.indigo.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
-            VStack(alignment: .leading, spacing: 6) {
-                Text(people.first { $0.id == record.personID }?.profile.displayName ?? "記録された出会い")
-                    .font(.headline)
-                Text(record.startedAt, format: .dateTime.year().month().day().hour().minute())
-                    .font(.caption).foregroundStyle(.secondary)
-                Text(Duration.seconds(record.duration), format: .time(pattern: .minuteSecond))
-                    .font(.system(.title3, design: .rounded, weight: .medium)).monospacedDigit()
-            }
-        }
-        .padding(.vertical, 8)
     }
 }
 
@@ -96,51 +74,65 @@ struct MyProfilePage: View {
     @State private var didLoad = false
 
     var body: some View {
-        Form {
-            Section {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 ProfileIdentityHeader(name: name.isEmpty ? profile.displayName : name, affiliation: affiliation)
-                    .listRowInsets(EdgeInsets())
-            }
-            Section("基本情報") {
-                TextField("表示名", text: $name)
-                TextField("所属", text: $affiliation)
-                TextField("自己紹介", text: $bio, axis: .vertical).lineLimit(3...8)
-                Toggle("近くの人にプロフィールを公開", isOn: $isDiscoverable)
-                Button("基本情報を保存") { Task { await saveProfile() } }
-                    .buttonStyle(.glassProminent)
-            }
-            Section {
-                ForEach(contents) { content in
-                    Button { editing = ContentDraft(content: content) } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label(content.title, systemImage: content.isPublic ? "eye" : "eye.slash")
-                                .foregroundStyle(.primary)
-                            Text(content.value).lineLimit(2).font(.subheadline).foregroundStyle(.secondary)
-                            Text(content.unlockAfterSeconds == 0 ? "公開時はすぐに表示" : "累計\(content.unlockAfterSeconds)秒で公開")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .swipeActions {
-                        Button("削除", role: .destructive) { pendingDeletion = content }
-                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 28))
+                    .modifier(ProfileCardScrollEffect())
+                ProfileCard {
+                    Label("基本情報", systemImage: "person.text.rectangle").font(.title2.bold())
+                    TextField("表示名", text: $name)
+                    Divider()
+                    TextField("所属", text: $affiliation)
+                    Divider()
+                    TextField("自己紹介", text: $bio, axis: .vertical).lineLimit(3...8)
+                    Toggle("近くの人にプロフィールを公開", isOn: $isDiscoverable)
+                    Button("基本情報を保存") { Task { await saveProfile() } }
+                        .buttonStyle(.glassProminent)
                 }
-                Button("公開項目を追加", systemImage: "plus") { editing = ContentDraft() }
-            } header: {
                 Text("あなたを知るきっかけ")
-            } footer: {
-                Text("公開を許可した項目だけが対象です。時間条件は相手の端末に保存された、終了済みの出会いの累計時間で判定します。")
-            }
-            if let savedMessage { Text(savedMessage).foregroundStyle(.secondary) }
-            if let errorMessage {
-                Section {
-                    Text(errorMessage).foregroundStyle(.red)
-                    Button("項目を再読み込み") { Task { await loadContents() } }
+                    .font(.system(.title2, design: .rounded, weight: .bold))
+                ForEach(contents) { content in
+                    ProfileCard {
+                        HStack(alignment: .top) {
+                            Label(content.title, systemImage: content.isPublic ? "eye" : "eye.slash")
+                                .font(.title3.bold())
+                            Spacer()
+                            Menu {
+                                Button("編集", systemImage: "pencil") { editing = ContentDraft(content: content) }
+                                Button("削除", systemImage: "trash", role: .destructive) { pendingDeletion = content }
+                            } label: {
+                                Image(systemName: "ellipsis").padding(8)
+                            }
+                            .accessibilityLabel("項目の操作")
+                        }
+                        RichContentView(kind: content.type == .text ? .text : content.type == .image ? .image : content.type == .video ? .video : .url,
+                                        value: content.value, title: content.title)
+                            .id(content.value)
+                        Text(content.unlockAfterSeconds == 0 ? "公開時はすぐに表示" : "累計\(content.unlockAfterSeconds)秒で公開")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-            }
-            Section {
+                ProfileCard {
+                    Button("公開項目を追加", systemImage: "plus") { editing = ContentDraft() }
+                        .buttonStyle(.glass)
+                    Text("公開を許可した項目だけが対象です。時間条件は相手の端末に保存された、終了済みの出会いの累計時間で判定します。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                if let savedMessage { Text(savedMessage).foregroundStyle(.secondary) }
+                if let errorMessage {
+                    ProfileCard {
+                        Text(errorMessage).foregroundStyle(.red)
+                        Button("項目を再読み込み") { Task { await loadContents() } }
+                    }
+                }
                 Button("ログアウト", role: .destructive, action: onSignOut)
+                    .buttonStyle(.glass).padding(.vertical)
             }
+            .padding(24).frame(maxWidth: 720).frame(maxWidth: .infinity)
         }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .scrollDismissesKeyboard(.interactively)
         .disabled(isBusy)
         .overlay { if isBusy { ProgressView().padding().background(.regularMaterial, in: Capsule()) } }
         .navigationTitle("あなたのプロフィール")

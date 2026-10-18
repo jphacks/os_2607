@@ -14,6 +14,7 @@ struct RecordedEncounter: Identifiable, Sendable, Equatable {
     let startedAt: Date
     let endedAt: Date
     let duration: TimeInterval
+    var title: String? = nil
 }
 
 /// SDK-independent conservative accounting. Entry/exit waits and missing intervals never accrue.

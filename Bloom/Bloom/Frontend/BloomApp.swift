@@ -53,9 +53,9 @@ private struct SessionRootView: View {
             }
         }
         .task { await model.restore() }
-        .onChange(of: scenePhase) { old, phase in
-            if old == .background && phase == .active {
-                Task { await model.restore() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, !model.isLoading {
+                Task { await model.refreshSession() }
             }
         }
     }
@@ -83,11 +83,11 @@ struct HomeView: View {
             Tab("近く", systemImage: "sparkles") {
                 NavigationStack { NearbyPeoplePage(proximity: proximity, ownProfile: profile) }
             }
-            Tab("メッセージ", systemImage: "bubble.left.and.bubble.right") {
-                NavigationStack { MessagesPage() }
-            }
             Tab("履歴", systemImage: "clock") {
-                NavigationStack { EncounterHistoryPage(proximity: proximity) }
+                NavigationStack {
+                    EncounterHistoryPage(proximity: proximity,
+                                         repository: dependencies.profileRepository)
+                }
             }
             Tab("プロフィール", systemImage: "person.crop.circle") {
                 NavigationStack {
@@ -99,9 +99,10 @@ struct HomeView: View {
                 }
             }
         }
-        .tint(.indigo)
+        .tint(.pink)
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background { proximity.stop() }
+            if phase == .background { proximity.enteredBackground() }
+            if phase == .active { proximity.becameActive() }
         }
         .onChange(of: profile.isDiscoverable) { _, allowed in
             if !allowed { proximity.stop() }

@@ -9,6 +9,7 @@ final class StoredEncounter {
     var personID: UUID
     var startedAt: Date
     var endedAt: Date
+    var title: String?
     var duration: Double
 
     init(ownerID: UUID, encounter: RecordedEncounter) {
@@ -18,6 +19,7 @@ final class StoredEncounter {
         personID = encounter.personID
         startedAt = encounter.startedAt
         endedAt = encounter.endedAt
+        title = encounter.title
         duration = encounter.duration
     }
 }
@@ -40,7 +42,7 @@ final class EncounterHistoryStore {
         )
         return try container.mainContext.fetch(descriptor).map {
             RecordedEncounter(id: $0.id, personID: $0.personID, startedAt: $0.startedAt,
-                              endedAt: $0.endedAt, duration: $0.duration)
+                              endedAt: $0.endedAt, duration: $0.duration, title: $0.title)
         }
     }
 
@@ -50,6 +52,20 @@ final class EncounterHistoryStore {
         for encounter in encounters where known.insert(encounter.id).inserted {
             container.mainContext.insert(StoredEncounter(ownerID: ownerID, encounter: encounter))
         }
+        do { try container.mainContext.save() }
+        catch { container.mainContext.rollback(); throw error }
+    }
+
+    func rename(id: UUID, title: String) throws {
+        let ownerID = ownerID
+        let descriptor = FetchDescriptor<StoredEncounter>(
+            predicate: #Predicate { $0.ownerID == ownerID && $0.id == id }
+        )
+        guard let record = try container.mainContext.fetch(descriptor).first else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        let cleaned = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        record.title = cleaned.isEmpty ? nil : cleaned
         do { try container.mainContext.save() }
         catch { container.mainContext.rollback(); throw error }
     }

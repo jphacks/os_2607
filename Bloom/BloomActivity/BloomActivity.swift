@@ -1,86 +1,38 @@
-//
-//  BloomActivity.swift
-//  BloomActivity
-//
-//  Created by Kazuyoshi Chiba on 2026/10/18.
-//
-
-import WidgetKit
+import ActivityKit
 import SwiftUI
-
-struct Provider: TimelineProvider {
-    func placeholder(in context: Context) -> SimpleEntry {
-        SimpleEntry(date: Date(), emoji: "😀")
-    }
-
-    func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> ()) {
-        let entry = SimpleEntry(date: Date(), emoji: "😀")
-        completion(entry)
-    }
-
-    func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> ()) {
-        var entries: [SimpleEntry] = []
-
-        // Generate a timeline consisting of five entries an hour apart, starting from the current date.
-        let currentDate = Date()
-        for hourOffset in 0 ..< 5 {
-            let entryDate = Calendar.current.date(byAdding: .hour, value: hourOffset, to: currentDate)!
-            let entry = SimpleEntry(date: entryDate, emoji: "😀")
-            entries.append(entry)
-        }
-
-        let timeline = Timeline(entries: entries, policy: .atEnd)
-        completion(timeline)
-    }
-
-//    func relevances() async -> WidgetRelevances<Void> {
-//        // Generate a list containing the contexts this widget is relevant in.
-//    }
-}
-
-struct SimpleEntry: TimelineEntry {
-    let date: Date
-    let emoji: String
-}
-
-struct BloomActivityEntryView : View {
-    var entry: Provider.Entry
-
-    var body: some View {
-        VStack {
-            HStack {
-                Text("Time:")
-                Text(entry.date, style: .time)
-            }
-
-            Text("Emoji:")
-            Text(entry.emoji)
-        }
-    }
-}
+import WidgetKit
 
 struct BloomActivity: Widget {
-    let kind: String = "BloomActivity"
-
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: Provider()) { entry in
-            if #available(macOS 14.0, iOS 17.0, *) {
-                BloomActivityEntryView(entry: entry)
-                    .containerBackground(.fill.tertiary, for: .widget)
-            } else {
-                BloomActivityEntryView(entry: entry)
-                    .padding()
-                    .background()
+        ActivityConfiguration(for: BloomPresenceAttributes.self) { context in
+            HStack(spacing: 16) {
+                Image(systemName: "leaf.fill")
+                    .font(.largeTitle).foregroundStyle(.pink)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Bloom").font(.headline)
+                    Text(context.state.isParticipating ? "この場所に参加中" : "参加を終了しました")
+                        .font(.subheadline)
+                    Text("タップしてBloomを開く").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(20)
+            .activityBackgroundTint(Color(uiColor: .secondarySystemBackground))
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    Label("Bloom", systemImage: "leaf.fill").foregroundStyle(.pink)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    Text(context.state.isParticipating ? "この場所に参加中 · タップして開く" : "参加を終了しました")
+                }
+            } compactLeading: {
+                Image(systemName: "leaf.fill").foregroundStyle(.pink)
+            } compactTrailing: {
+                Text(context.state.isParticipating ? "参加中" : "終了")
+            } minimal: {
+                Image(systemName: "leaf.fill").foregroundStyle(.pink)
             }
         }
-        .configurationDisplayName("My Widget")
-        .description("This is an example widget.")
     }
-}
-
-#Preview(as: .systemSmall) {
-    BloomActivity()
-} timeline: {
-    SimpleEntry(date: .now, emoji: "😀")
-    SimpleEntry(date: .now, emoji: "🤩")
 }

@@ -29,8 +29,10 @@ final class UWBConnectionService {
     private var requestIDs: [UUID: UUID] = [:]
     private var refreshAt: [UUID: ContinuousClock.Instant] = [:]
     private var expiresAt: [UUID: ContinuousClock.Instant] = [:]
-    private var attemptedPeers: Set<String> = []
+    private var automaticRetry = AutomaticPeerRetry()
+    private var nextDiscoveryRestart: ContinuousClock.Instant?
     private var generation = UUID()
+    private let presenceActivity = PresenceActivityController()
 
     var people: [NearbyPerson] {
         authorizedPeople.map { person in
@@ -62,6 +64,13 @@ final class UWBConnectionService {
             connectionError = "近くの人を見つけるにはUWB対応のiPhoneが必要です。"
             return
         }
+        presenceActivity.onEnded = { [weak self] in
+            self?.stop()
+        }
+        do { try presenceActivity.start() }
+        catch {
+            connectionError = "バックグラウンドでの参加にはライブアクティビティの許可が必要です。今回はBloomを開いている間だけ参加できます。"
+        }
         generation = UUID()
         isParticipating = true
         session.startHosting()
@@ -81,13 +90,24 @@ final class UWBConnectionService {
     }
 
     private func refresh() {
+        let now = ContinuousClock.now
+        let elapsed = clockOrigin.duration(to: now).components
+        let time = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        if nextDiscoveryRestart.map({ now >= $0 }) ?? true {
+            // These are idempotent while running; restart after a transient discovery failure.
+            session.startHosting()
+            session.startBrowsing()
+            nextDiscoveryRestart = now.advanced(by: .seconds(5))
+        }
         let discoveredIDs = Set(session.discoveredPeers.map(\.id))
-        attemptedPeers.formIntersection(discoveredIDs)
+        automaticRetry.retainOnly(discoveredIDs)
         // Only one endpoint initiates automatically, avoiding simultaneous cross-connections.
         for peer in session.discoveredPeers where session.localName < peer.name {
-            if attemptedPeers.insert(peer.id).inserted { connect(to: peer) }
+            if automaticRetry.shouldAttempt(peerID: peer.id, localName: session.localName, remoteName: peer.name, time: time) {
+                // connect(to:) reuses a live connection and replaces a failed one.
+                connect(to: peer)
+            }
         }
-        let now = ContinuousClock.now
         let observations = session.observations.filter {
             guard let distance = $0.distanceMeters else { return false }
             let age = Date().timeIntervalSince($0.observedAt)
@@ -104,8 +124,6 @@ final class UWBConnectionService {
         let authorizedIDs = Set(authorizedPeople.map(\.id))
         var completed = tracker.retainOnly(visibleIDs.intersection(authorizedIDs))
         lastObservation = lastObservation.filter { visibleIDs.contains($0.key) && authorizedIDs.contains($0.key) }
-        let elapsed = clockOrigin.duration(to: now).components
-        let time = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
         for observation in observations where authorizedIDs.contains(observation.personID) {
             guard lastObservation[observation.personID] != observation.observedAt else { continue }
             lastObservation[observation.personID] = observation.observedAt
@@ -176,6 +194,13 @@ final class UWBConnectionService {
         } catch { historyError = error.localizedDescription }
     }
 
+    func renameEncounter(id: UUID, title: String) throws {
+        if historyStore == nil { historyStore = try EncounterHistoryStore(ownerID: personID) }
+        guard let historyStore else { throw CocoaError(.fileNoSuchFile) }
+        try historyStore.rename(id: id, title: title)
+        records = try historyStore.load()
+    }
+
     func deleteHistory() {
         do {
             if historyStore == nil { historyStore = try EncounterHistoryStore(ownerID: personID) }
@@ -188,7 +213,28 @@ final class UWBConnectionService {
         } catch { historyError = "履歴を削除できませんでした。" + error.localizedDescription }
     }
 
+    func enteredBackground() {
+        guard isParticipating else { return }
+        if !presenceActivity.permitsBackgroundRanging {
+            stop()
+            connectionError = "ライブアクティビティを開始できなかったため参加を終了しました。Bloomを開いて再び参加してください。"
+        }
+        // With the activity active, retain the Network connections and every NISession.
+        // NI delegate suspension events still remove stale measurements and resume the configuration.
+    }
+
+    func becameActive() {
+        guard isParticipating else { return }
+        guard presenceActivity.permitsBackgroundRanging else {
+            // Foreground-only participation is allowed when activities are disabled.
+            refresh()
+            return
+        }
+        refresh()
+    }
+
     func stop() {
+        presenceActivity.stop()
         persist(tracker.finishAll())
         lastObservation.removeAll()
         generation = UUID()
@@ -199,7 +245,8 @@ final class UWBConnectionService {
         requestIDs.removeAll()
         refreshAt.removeAll()
         expiresAt.removeAll()
-        attemptedPeers.removeAll()
+        automaticRetry = AutomaticPeerRetry()
+        nextDiscoveryRestart = nil
         authorizedPeople.removeAll()
         session.stop()
         isParticipating = false

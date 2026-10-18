@@ -33,6 +33,30 @@ final class AppSessionModel {
         }
     }
 
+    /// Revalidate without replacing HomeView and destroying active ranging sessions.
+    func refreshSession() async {
+        guard let existingUser = user, profile != nil else { await restore(); return }
+        do {
+            let current = try await dependencies.authRepository.currentUser()
+            guard user?.id == existingUser.id else { return }
+            guard current?.id == existingUser.id else {
+                await restore()
+                return
+            }
+            do {
+                let refreshed = try await dependencies.profileRepository.fetchMyProfile()
+                guard user?.id == existingUser.id else { return }
+                profile = refreshed
+            } catch BackendError.notFound {
+                guard user?.id == existingUser.id else { return }
+                profile = nil
+            }
+        } catch {
+            // Transient connectivity failures must not tear down a locally running encounter.
+            // Authenticated API calls continue to enforce server-side authorization.
+        }
+    }
+
     func signOut() async {
         do {
             try await dependencies.authRepository.signOut()
