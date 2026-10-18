@@ -12,6 +12,16 @@ struct SupabaseAuthRepository: AuthRepository {
         do { try await provider.client.auth.signIn(email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password) }
         catch { throw BackendError.map(error) }
     }
+    func signInWithApple(idToken: String, nonce: String) async throws {
+        do {
+            _ = try await provider.client.auth.signInWithIdToken(
+                credentials: .init(provider: .apple, idToken: idToken, nonce: nonce)
+            )
+        } catch {
+            throw BackendError.map(error)
+        }
+    }
+
     func signOut() async throws {
         do { try await provider.client.auth.signOut() }
         catch { throw BackendError.map(error) }

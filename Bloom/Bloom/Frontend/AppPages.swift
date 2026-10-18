@@ -1,405 +1,288 @@
 import SwiftUI
 
-struct MessagesPage: View {
-    @Binding var selectedConversation: String?
-    @State private var searchText = ""
-
-    private let conversations: [(name: String, message: String, time: String, tint: Color, unread: Bool)] = [
-        ("なつみ", "また今度おすすめのお店教えてね！", "16:20", Color(red: 0.98, green: 0.88, blue: 0.83), true),
-        ("みさき", "音楽の話、もっと聞きたい！", "昨日", Color(red: 0.94, green: 0.88, blue: 0.96), false),
-        ("大輔", "はじめまして。ゲーム好きなんですね", "月曜日", Color(red: 0.84, green: 0.89, blue: 0.98), false)
-    ]
-
-    var body: some View {
-        Group {
-            if let name = selectedConversation {
-                ChatThreadPage(name: name) { selectedConversation = nil }
-            } else {
-                conversationList
-            }
-        }
-        .background(BloomPalette.canvas.ignoresSafeArea())
-        .foregroundStyle(BloomPalette.ink)
-    }
-
-    private var conversationList: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("メッセージ")
-                .font(.system(size: 27, weight: .bold, design: .rounded))
-                .padding(.top, 16)
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(BloomPalette.muted)
-                TextField("メッセージを検索", text: $searchText)
-                    .font(.system(size: 13))
-            }
-            .padding(12)
-            .background(.white, in: RoundedRectangle(cornerRadius: 14))
-
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 8) {
-                    ForEach(conversations.filter { searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText) }, id: \.name) { item in
-                        Button { selectedConversation = item.name } label: {
-                            HStack(spacing: 12) {
-                                messageAvatar(item.name, tint: item.tint)
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(item.name).font(.system(size: 14, weight: .semibold))
-                                    Text(item.message).font(.system(size: 11)).foregroundStyle(BloomPalette.muted).lineLimit(1)
-                                }
-                                Spacer(minLength: 4)
-                                VStack(alignment: .trailing, spacing: 6) {
-                                    Text(item.time).font(.system(size: 9)).foregroundStyle(BloomPalette.muted)
-                                    if item.unread { Circle().fill(BloomPalette.blue).frame(width: 7, height: 7) }
-                                }
-                            }
-                            .padding(12)
-                            .background(.white, in: RoundedRectangle(cornerRadius: 18))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 12)
-    }
-
-    private func messageAvatar(_ name: String, tint: Color) -> some View {
-        ZStack {
-            Circle().fill(tint.gradient)
-            Image(systemName: "person.fill").font(.system(size: 21, weight: .light)).foregroundStyle(BloomPalette.blue.opacity(0.7))
-        }
-        .frame(width: 48, height: 48)
-    }
-}
-
-struct ChatThreadPage: View {
-    let name: String
-    let onBack: () -> Void
-    @State private var draft = ""
-    @State private var sentMessages: [String] = []
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left").font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(BloomPalette.blue).frame(width: 40, height: 40)
-                }
-                Text(name).font(.system(size: 16, weight: .semibold))
-                Spacer()
-                Image(systemName: "person.crop.circle").font(.system(size: 21)).foregroundStyle(BloomPalette.muted)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-
-            ScrollViewReader { proxy in
-            ScrollView {
-                VStack(spacing: 12) {
-                    Text("出会いからメッセージが始まりました")
-                        .font(.system(size: 10)).foregroundStyle(BloomPalette.muted).padding(.vertical, 16)
-                    messageBubble("こんにちは！さっきはありがとう。", isMine: false)
-                    messageBubble("こちらこそ！話せてうれしかったです。", isMine: true)
-                    messageBubble("また今度おすすめのお店教えてね！", isMine: false)
-                    ForEach(Array(sentMessages.enumerated()), id: \.offset) { _, message in
-                        messageBubble(message, isMine: true)
-                    }
-                    Color.clear.frame(height: 1).id("latest-message")
-                }
-                .padding(.horizontal, 16)
-            }
-            .onAppear { proxy.scrollTo("latest-message", anchor: .bottom) }
-            .onChange(of: sentMessages.count) { _, _ in
-                withAnimation { proxy.scrollTo("latest-message", anchor: .bottom) }
-            }
-            }
-
-            HStack(spacing: 10) {
-                TextField("メッセージを入力", text: $draft, axis: .vertical)
-                    .lineLimit(1...4)
-                    .padding(11)
-                    .background(BloomPalette.canvas, in: RoundedRectangle(cornerRadius: 17))
-                Button {
-                    let message = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !message.isEmpty else { return }
-                    sentMessages.append(message)
-                    draft = ""
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
-                        .frame(width: 38, height: 38).background(BloomPalette.blue, in: Circle())
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(12)
-            .background(.white)
-        }
-    }
-
-    private func messageBubble(_ text: String, isMine: Bool) -> some View {
-        HStack {
-            if isMine { Spacer(minLength: 40) }
-            Text(text)
-                .font(.system(size: 13))
-                .foregroundStyle(isMine ? .white : BloomPalette.ink)
-                .padding(.horizontal, 13).padding(.vertical, 10)
-                .background(isMine ? BloomPalette.blue : .white, in: RoundedRectangle(cornerRadius: 16))
-            if !isMine { Spacer(minLength: 40) }
-        }
-    }
-}
-
 struct EncounterHistoryPage: View {
-    let records: [EncounterRecord]
-    let people: [EncounterPerson]
-    let onSelect: (EncounterPerson) -> Void
-
-    private var todayRecords: [EncounterRecord] {
-        records.filter { Calendar.current.isDateInToday($0.startedAt) }
-    }
-
-    private var earlierRecords: [EncounterRecord] {
-        records.filter { !Calendar.current.isDateInToday($0.startedAt) }
-    }
+    let proximity: UWBConnectionService
+    let repository: any ProfileRepository
+    @State private var confirmsDeletion = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("出会いの履歴")
-                    .font(.system(size: 27, weight: .bold, design: .rounded))
-                    .padding(.top, 16)
-                Text("一緒に過ごした時間は、また会ったときに積み重なります。")
-                    .font(.system(size: 12)).foregroundStyle(BloomPalette.muted)
-                HStack(spacing: 12) {
-                    historySummary(value: records.isEmpty ? "3人" : "\(todayRecords.count)人", title: "今日会った人", symbol: "person.2.fill")
-                    historySummary(value: records.isEmpty ? "26分" : totalTodayDuration, title: "今日の合計", symbol: "clock.fill")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("重なった時間を、\nあなたの記憶に。")
+                        .font(.system(.title, design: .rounded, weight: .bold))
+                    Text("\(proximity.records.count)回の出会い")
+                        .font(.headline).foregroundStyle(.pink)
+                    Text("終了した出会いの実測時間を、このアカウントの履歴として端末に保存します。")
+                        .font(.callout).foregroundStyle(.secondary)
                 }
-                if records.isEmpty {
-                    Text("今日").font(.system(size: 16, weight: .bold)).padding(.top, 4)
-                    VStack(spacing: 9) {
-                        ForEach(people.filter { $0.id == 3 }) { person in historyRow(person, date: "15:12") }
+                .padding(.vertical, 16)
+                if let error = proximity.historyError {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(error).foregroundStyle(.red)
+                        Button("再試行") { proximity.retryHistory() }
                     }
-                    Text("最近").font(.system(size: 16, weight: .bold)).padding(.top, 4)
-                    ForEach(people.filter { $0.id != 3 }) { person in historyRow(person, date: "10月15日") }
+                }
+                if proximity.records.isEmpty {
+                    ContentUnavailableView("まだ記録はありません", systemImage: "clock",
+                                           description: Text("近くの人との出会いが終了すると、ここに記録されます。"))
                 } else {
-                    if !todayRecords.isEmpty {
-                        Text("今日").font(.system(size: 16, weight: .bold)).padding(.top, 4)
-                        VStack(spacing: 9) {
-                            ForEach(Array(todayRecords.enumerated()), id: \.element.id) { index, record in
-                                recordRow(record, index: index)
+                    Text("この端末での出会い").font(.title2.bold())
+                    LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize
+                              ? [GridItem(.flexible())]
+                              : [GridItem(.adaptive(minimum: 150), spacing: 16)], spacing: 16) {
+                        ForEach(EncounterHistorySummary.group(proximity.records)) { summary in
+                            NavigationLink {
+                                HistoricalPersonDetail(summary: summary, proximity: proximity, repository: repository)
+                            } label: {
+                                EncounterHistoryPersonCard(summary: summary, repository: repository)
                             }
+                            .buttonStyle(.plain)
                         }
                     }
-                    if !earlierRecords.isEmpty {
-                        Text("最近").font(.system(size: 16, weight: .bold)).padding(.top, 4)
-                        VStack(spacing: 9) {
-                            ForEach(Array(earlierRecords.enumerated()), id: \.element.id) { index, record in
-                                recordRow(record, index: index + 100)
-                            }
-                        }
-                    }
+                    Text("カードを開くと、セッションごとのタイトルを保存・確認できます。待機中・観測が途切れた時間は含みません。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
+            .padding(24).frame(maxWidth: 900).frame(maxWidth: .infinity)
         }
-        .background(BloomPalette.canvas.ignoresSafeArea())
-        .foregroundStyle(BloomPalette.ink)
-    }
-
-    private var totalTodayDuration: String {
-        let minutes = todayRecords.reduce(0) { $0 + $1.durationSeconds } / 60
-        return "\(minutes)分"
-    }
-
-    private func recordRow(_ record: EncounterRecord, index: Int) -> some View {
-        let person = EncounterPerson(
-            id: -index - 1,
-            name: record.personName,
-            subtitle: "出会いを記録しました",
-            imageSymbol: "person.fill",
-            tint: Color(red: 0.87, green: 0.91, blue: 0.97),
-            distance: "—",
-            currentTime: "終了",
-            totalTime: record.durationLabel,
-            totalSeconds: record.durationSeconds,
-            secondsToNextReveal: 600,
-            nextReveal: "好きなこと",
-            revealedInterests: [],
-            isEncountering: false,
-            isConnection: true
-        )
-        return historyRow(person, date: record.startedAt.formatted(date: .omitted, time: .shortened))
-    }
-
-    private func historySummary(value: String, title: String, symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 15)).foregroundStyle(BloomPalette.blue)
-            Text(value).font(.system(size: 20, weight: .bold, design: .rounded))
-            Text(title).font(.system(size: 10)).foregroundStyle(BloomPalette.muted)
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("出会いの履歴")
+        .toolbar {
+            Button("履歴を削除", systemImage: "trash", role: .destructive) { confirmsDeletion = true }
+                .disabled(proximity.records.isEmpty)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(.white, in: RoundedRectangle(cornerRadius: 18))
-    }
-
-    private func historyRow(_ person: EncounterPerson, date: String) -> some View {
-        Button { onSelect(person) } label: {
-            HStack(spacing: 11) {
-                ZStack {
-                    Circle().fill(person.tint.gradient)
-                    Image(systemName: person.imageSymbol).font(.system(size: 21, weight: .light)).foregroundStyle(BloomPalette.blue.opacity(0.7))
-                }
-                .frame(width: 44, height: 44)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(person.name).font(.system(size: 13, weight: .semibold))
-                    Text("一緒にいた時間  ·  \(person.totalTime)").font(.system(size: 10)).foregroundStyle(BloomPalette.muted)
-                }
-                Spacer()
-                Text(date).font(.system(size: 9)).foregroundStyle(BloomPalette.muted)
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(BloomPalette.muted)
-            }
-            .padding(11)
-            .background(.white, in: RoundedRectangle(cornerRadius: 17))
+        .confirmationDialog("このアカウントの端末内履歴を削除しますか？", isPresented: $confirmsDeletion, titleVisibility: .visible) {
+            Button("履歴と累計時間を削除", role: .destructive) { proximity.deleteHistory() }
+        } message: {
+            Text("時間条件を満たしていた公開項目も、時間が再びたまるまで非表示になります。")
         }
-        .buttonStyle(.plain)
     }
-}
-
-private struct EditableProfileField: Identifiable, Codable, Equatable {
-    var id = UUID()
-    var title: String
-    var content: String
-    var revealMinutes: Int
-    var isPublic: Bool
 }
 
 struct MyProfilePage: View {
-    @Binding var profileName: String
-    @AppStorage("profileAffiliation") private var profileAffiliation = ""
-    @AppStorage("profileBio") private var profileBio = ""
-    @AppStorage("editableProfileFields") private var storedFields = ""
-    @State private var fields: [EditableProfileField] = [
-        EditableProfileField(title: "自己紹介", content: "好きなことを通じて、いろんな人と話したいです。", revealMinutes: 0, isPublic: true),
-        EditableProfileField(title: "好きなこと", content: "音楽、カフェ、散歩", revealMinutes: 3, isPublic: true),
-        EditableProfileField(title: "最近ハマっていること", content: "新しいお店を探すこと", revealMinutes: 10, isPublic: true)
-    ]
+    let profile: Profile
+    let repository: any ProfileRepository
+    let onSaved: (Profile) -> Void
+    let onSignOut: () -> Void
+    @State private var name = ""
+    @State private var affiliation = ""
+    @State private var bio = ""
+    @State private var isDiscoverable = false
+    @State private var contents: [ProfileContent] = []
+    @State private var editing: ContentDraft?
+    @State private var pendingDeletion: ProfileContent?
+    @State private var isBusy = false
+    @State private var errorMessage: String?
+    @State private var savedMessage: String?
+    @State private var didLoad = false
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("プロフィール")
-                    .font(.system(size: 27, weight: .bold, design: .rounded))
-                    .padding(.top, 16)
-                HStack(spacing: 14) {
-                    ZStack {
-                        Circle().fill(Color(red: 0.84, green: 0.89, blue: 0.98).gradient)
-                        Image(systemName: "person.fill").font(.system(size: 34, weight: .light)).foregroundStyle(BloomPalette.blue.opacity(0.7))
-                    }
-                    .frame(width: 70, height: 70)
-                    VStack(alignment: .leading, spacing: 5) {
-                        TextField("名前", text: $profileName).font(.system(size: 18, weight: .bold))
-                        Text("プロフィールを編集").font(.system(size: 11)).foregroundStyle(BloomPalette.muted)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(BloomPalette.muted)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                ProfileIdentityHeader(name: name.isEmpty ? profile.displayName : name, affiliation: affiliation)
+                    .clipShape(RoundedRectangle(cornerRadius: 28))
+                    .modifier(ProfileCardScrollEffect())
+                ProfileCard {
+                    Label("基本情報", systemImage: "person.text.rectangle").font(.title2.bold())
+                    TextField("表示名", text: $name)
+                    Divider()
+                    TextField("所属", text: $affiliation)
+                    Divider()
+                    TextField("自己紹介", text: $bio, axis: .vertical).lineLimit(3...8)
+                    Toggle("近くの人にプロフィールを公開", isOn: $isDiscoverable)
+                    Button("基本情報を保存") { Task { await saveProfile() } }
+                        .buttonStyle(.glassProminent)
                 }
-                .padding(14)
-                .background(.white, in: RoundedRectangle(cornerRadius: 20))
-
-                if !profileAffiliation.isEmpty || !profileBio.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if !profileAffiliation.isEmpty {
-                            profileInfoRow(title: "所属", value: profileAffiliation)
-                        }
-                        if !profileBio.isEmpty {
-                            profileInfoRow(title: "自己紹介", value: profileBio)
-                        }
-                    }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 18))
-                }
-
-                HStack {
-                    Text("公開する情報").font(.system(size: 16, weight: .bold))
-                    Spacer()
-                    Button { addField() } label: {
-                        Label("項目を追加", systemImage: "plus.circle.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                    }
-                }
-                .padding(.top, 3)
-                Text("項目名も内容も自由に入力できます。公開までの累計時間が長い項目ほど、プロフィールの下に表示されます。")
-                    .font(.system(size: 10)).foregroundStyle(BloomPalette.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                ForEach($fields) { $field in
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            TextField("項目名", text: $field.title)
-                                .font(.system(size: 13, weight: .semibold))
-                            Toggle("公開", isOn: $field.isPublic).labelsHidden().tint(BloomPalette.green).scaleEffect(0.8, anchor: .trailing)
-                            Button(role: .destructive) { removeField(id: field.id) } label: {
-                                Image(systemName: "trash").font(.system(size: 12))
-                            }
-                        }
-                        TextField("公開する内容を入力", text: $field.content, axis: .vertical)
-                            .font(.system(size: 12))
-                            .lineLimit(3...6)
-                            .padding(10)
-                            .background(BloomPalette.canvas, in: RoundedRectangle(cornerRadius: 12))
-                        HStack {
-                            Text(field.revealMinutes == 0 ? "最初から公開" : "累計時間で公開")
-                                .font(.system(size: 10)).foregroundStyle(BloomPalette.muted)
+                Text("あなたを知るきっかけ")
+                    .font(.system(.title2, design: .rounded, weight: .bold))
+                ForEach(contents) { content in
+                    ProfileCard {
+                        HStack(alignment: .top) {
+                            Label(content.title, systemImage: content.isPublic ? "eye" : "eye.slash")
+                                .font(.title3.bold())
                             Spacer()
-                            Stepper("\(field.revealMinutes)分", value: $field.revealMinutes, in: 0...180, step: 1)
-                                .labelsHidden().frame(width: 90)
-                            Text("\(field.revealMinutes)分").font(.system(size: 11, weight: .semibold)).foregroundStyle(BloomPalette.blue)
+                            Menu {
+                                Button("編集", systemImage: "pencil") { editing = ContentDraft(content: content) }
+                                Button("削除", systemImage: "trash", role: .destructive) { pendingDeletion = content }
+                            } label: {
+                                Image(systemName: "ellipsis").padding(8)
+                            }
+                            .accessibilityLabel("項目の操作")
                         }
+                        RichContentView(kind: content.type == .text ? .text : content.type == .image ? .image : content.type == .video ? .video : .url,
+                                        value: content.value, title: content.title)
+                            .id(content.value)
+                        Text(content.unlockAfterSeconds == 0 ? "公開時はすぐに表示" : "累計\(content.unlockAfterSeconds)秒で公開")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    .padding(13)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 18))
                 }
-                Text("出会いの累計時間は、離れたあとも保存されます。公開条件はいつでも変更できます。")
-                    .font(.system(size: 10)).foregroundStyle(BloomPalette.muted)
-                    .fixedSize(horizontal: false, vertical: true)
+                ProfileCard {
+                    Button("公開項目を追加", systemImage: "plus") { editing = ContentDraft() }
+                        .buttonStyle(.glass)
+                    Text("公開を許可した項目だけが対象です。時間条件は相手の端末に保存された、終了済みの出会いの累計時間で判定します。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                if let savedMessage { Text(savedMessage).foregroundStyle(.secondary) }
+                if let errorMessage {
+                    ProfileCard {
+                        Text(errorMessage).foregroundStyle(.red)
+                        Button("項目を再読み込み") { Task { await loadContents() } }
+                    }
+                }
+                Button("ログアウト", role: .destructive, action: onSignOut)
+                    .buttonStyle(.glass).padding(.vertical)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
+            .padding(24).frame(maxWidth: 720).frame(maxWidth: .infinity)
         }
-        .background(BloomPalette.canvas.ignoresSafeArea())
-        .foregroundStyle(BloomPalette.ink)
-        .onAppear(perform: loadFields)
-        .onChange(of: fields) { _, _ in saveFields() }
-    }
-
-    private func loadFields() {
-        guard let data = storedFields.data(using: .utf8),
-              let decoded = try? JSONDecoder().decode([EditableProfileField].self, from: data),
-              !decoded.isEmpty else { return }
-        fields = decoded
-    }
-
-    private func saveFields() {
-        guard let data = try? JSONEncoder().encode(fields) else { return }
-        storedFields = String(decoding: data, as: UTF8.self)
-    }
-
-    private func addField() {
-        fields.append(EditableProfileField(title: "新しい項目", content: "", revealMinutes: 15, isPublic: true))
-    }
-
-    private func removeField(id: UUID) {
-        fields.removeAll { $0.id == id }
-    }
-
-    private func profileInfoRow(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(BloomPalette.muted)
-            Text(value)
-                .font(.system(size: 12))
-                .fixedSize(horizontal: false, vertical: true)
+        .background(Color(uiColor: .systemGroupedBackground))
+        .scrollDismissesKeyboard(.interactively)
+        .disabled(isBusy)
+        .overlay { if isBusy { ProgressView().padding().background(.regularMaterial, in: Capsule()) } }
+        .navigationTitle("あなたのプロフィール")
+        .task {
+            guard !didLoad else { return }
+            name = profile.displayName
+            affiliation = profile.affiliation ?? ""
+            bio = profile.bio ?? ""
+            isDiscoverable = profile.isDiscoverable
+            didLoad = true
+            await loadContents()
         }
+        .sheet(item: $editing) { draft in
+            ContentEditor(draft: draft, repository: repository) {
+                Task { await loadContents() }
+            }
+        }
+        .confirmationDialog("この項目を削除しますか？", isPresented: Binding(
+            get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }
+        ), titleVisibility: .visible) {
+            Button("削除", role: .destructive) {
+                guard let content = pendingDeletion else { return }
+                pendingDeletion = nil
+                Task { await delete(content) }
+            }
+        }
+    }
+
+    private func loadContents() async {
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            contents = try await repository.fetchContents(personID: profile.id)
+            errorMessage = nil
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func saveProfile() async {
+        isBusy = true
+        savedMessage = nil
+        defer { isBusy = false }
+        do {
+            let saved = try await repository.updateProfile(.init(displayName: name, affiliation: affiliation,
+                bio: bio, avatarPath: profile.avatarPath, isDiscoverable: isDiscoverable))
+            name = saved.displayName
+            affiliation = saved.affiliation ?? ""
+            bio = saved.bio ?? ""
+            onSaved(saved)
+            errorMessage = nil
+            savedMessage = "プロフィールを保存しました。"
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func delete(_ content: ProfileContent) async {
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            try await repository.deleteContent(id: content.id)
+            contents.removeAll { $0.id == content.id }
+            errorMessage = nil
+        } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+private struct ContentDraft: Identifiable {
+    let id = UUID()
+    var originalID: UUID?
+    var title = ""
+    var value = ""
+    var type = ProfileContentType.text
+    var seconds = 0
+    var order = 0
+    var isPublic = false
+
+    init() {}
+    init(content: ProfileContent) {
+        originalID = content.id
+        title = content.title
+        value = content.value
+        type = content.type
+        seconds = content.unlockAfterSeconds
+        order = content.displayOrder
+        isPublic = content.isPublic
+    }
+}
+
+private struct ContentEditor: View {
+    @State var draft: ContentDraft
+    let repository: any ProfileRepository
+    let onSaved: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("項目") {
+                    TextField("タイトル", text: $draft.title)
+                    Picker("種類", selection: $draft.type) {
+                        Text("テキスト").tag(ProfileContentType.text)
+                        Text("画像URL").tag(ProfileContentType.image)
+                        Text("音楽URL").tag(ProfileContentType.music)
+                        Text("リンク").tag(ProfileContentType.url)
+                        Text("動画URL").tag(ProfileContentType.video)
+                    }
+                    TextField(draft.type == .text ? "内容" : "https://…", text: $draft.value, axis: .vertical)
+                        .lineLimit(3...8)
+                }
+                Section("公開設定") {
+                    Toggle("公開する", isOn: $draft.isPublic)
+                    TextField("公開までの累計秒数", value: $draft.seconds, format: .number)
+                        .keyboardType(.numberPad)
+                    TextField("表示順", value: $draft.order, format: .number).keyboardType(.numberPad)
+                }
+                if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
+            }
+            .disabled(isSaving)
+            .navigationTitle(draft.originalID == nil ? "新しい項目" : "項目を編集")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }.disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") { Task { await save() } }.disabled(isSaving)
+                }
+            }
+            .interactiveDismissDisabled(isSaving)
+        }
+    }
+
+    private func save() async {
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            if let id = draft.originalID {
+                _ = try await repository.updateContent(id: id, input: .init(type: draft.type, title: draft.title,
+                    value: draft.value, unlockAfterSeconds: draft.seconds, displayOrder: draft.order, isPublic: draft.isPublic))
+            } else {
+                _ = try await repository.createContent(.init(type: draft.type, title: draft.title,
+                    value: draft.value, unlockAfterSeconds: draft.seconds, displayOrder: draft.order, isPublic: draft.isPublic))
+            }
+            onSaved()
+            dismiss()
+        } catch { errorMessage = error.localizedDescription }
     }
 }

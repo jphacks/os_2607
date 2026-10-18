@@ -9,6 +9,9 @@ import Observation
 @MainActor
 @Observable
 final class UWBMultiPeerSession {
+    private(set) var status = "停止中です。"
+    var localName: String { transport.serviceName }
+
     private(set) var discoveredPeers: [UWBPeer] = []
     private var connectionStore = UWBMultiPeerConnectionStore()
     let isSupported = NearbyRangingSession.isSupported
@@ -241,6 +244,7 @@ final class UWBMultiPeerSession {
     }
 
     private func emit(_ event: UWBMultiPeerEvent) {
+        if case let .statusChanged(message) = event { status = message }
         eventContinuation.yield(event)
     }
 }

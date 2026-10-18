@@ -1,306 +1,255 @@
 import Foundation
-import Combine
-import NearbyInteraction
-import MultipeerConnectivity
+import Observation
 
-struct EncounterRecord: Identifiable, Codable {
-    let id: UUID
-    let personName: String
-    let startedAt: Date
-    let durationSeconds: Int
-
-    var durationLabel: String {
-        let minutes = durationSeconds / 60
-        let seconds = durationSeconds % 60
-        return minutes > 0 ? "\(minutes)分\(String(format: "%02d", seconds))秒" : "\(seconds)秒"
-    }
+struct NearbyPerson: Identifiable {
+    let profile: PublicProfile
+    let contents: [ProfileContent]
+    var id: UUID { profile.id }
 }
 
-final class UWBConnectionService: NSObject, ObservableObject, MCSessionDelegate, MCNearbyServiceAdvertiserDelegate, MCNearbyServiceBrowserDelegate, NISessionDelegate {
-    @Published private(set) var status = "参加中"
-    @Published private(set) var distance: Float?
-    @Published private(set) var pendingRequestFrom: String?
-    @Published private(set) var encounterActive = false
-    @Published private(set) var encounterSeconds = 0
-    @Published private(set) var records: [EncounterRecord] = []
-    @Published private(set) var currentPeerName: String?
+/// Coordinates real observations, account-scoped history, and freshly authorized profiles.
+@MainActor
+@Observable
+final class UWBConnectionService {
+    private(set) var session: UWBMultiPeerSession
+    private(set) var isParticipating = false
+    private(set) var connectionError: String?
+    private(set) var historyError: String?
+    private(set) var records: [RecordedEncounter] = []
+    private var authorizedPeople: [NearbyPerson] = []
+    private var tracker = EncounterTracker()
+    private var historyStore: EncounterHistoryStore?
+    private var pendingRecords: [RecordedEncounter] = []
+    private var lastObservation: [UUID: Date] = [:]
+    private let clockOrigin = ContinuousClock.now
+    private let personID: UUID
+    private let repository: any ProfileRepository
+    private var monitor: Task<Void, Never>?
+    private var requests: [UUID: Task<Void, Never>] = [:]
+    private var requestIDs: [UUID: UUID] = [:]
+    private var refreshAt: [UUID: ContinuousClock.Instant] = [:]
+    private var expiresAt: [UUID: ContinuousClock.Instant] = [:]
+    private var automaticRetry = AutomaticPeerRetry()
+    private var nextDiscoveryRestart: ContinuousClock.Instant?
+    private var generation = UUID()
+    private let presenceActivity = PresenceActivityController()
 
-    private let serviceType = "hello-encounter"
-    private var localPeer: MCPeerID?
-    private var mcSession: MCSession?
-    private var advertiser: MCNearbyServiceAdvertiser?
-    private var browser: MCNearbyServiceBrowser?
-    private var nearbyPeers: [String: MCPeerID] = [:]
-    private var targetName: String?
-    private var invitedPeerNames = Set<String>()
-    private var niSession: NISession?
-    private var isParticipating = false
-    private var pendingInvitation: ((Bool, MCSession?) -> Void)?
-    private var enteredRangeAt: Date?
-    private var leftRangeAt: Date?
-    private var encounterStartedAt: Date?
-
-    override init() {
-        if let data = UserDefaults.standard.data(forKey: "hello.encounter.records"),
-           let savedRecords = try? JSONDecoder().decode([EncounterRecord].self, from: data) {
-            records = savedRecords
+    var people: [NearbyPerson] {
+        authorizedPeople.map { person in
+            let total = records.filter { $0.personID == person.id }.reduce(0) { $0 + $1.duration }
+            return NearbyPerson(profile: person.profile, contents: person.contents.filter {
+                RevealRule.allows(isPublic: $0.isPublic, requiredSeconds: $0.unlockAfterSeconds, accumulatedSeconds: total)
+            })
         }
-        super.init()
     }
 
-    func acceptPendingRequest() {
-        guard let handler = pendingInvitation, let mcSession else { return }
-        pendingInvitation = nil
-        DispatchQueue.main.async { self.pendingRequestFrom = nil }
-        handler(true, mcSession)
+    init(personID: UUID, repository: any ProfileRepository) {
+        self.personID = personID
+        self.repository = repository
+        session = UWBMultiPeerSession(personID: personID)
+        do {
+            let store = try EncounterHistoryStore(ownerID: personID)
+            records = try store.load()
+            historyStore = store
+        } catch {
+            historyError = "履歴を開けませんでした。" + error.localizedDescription
+        }
     }
 
-    func rejectPendingRequest() {
-        let handler = pendingInvitation
-        pendingInvitation = nil
-        DispatchQueue.main.async { self.pendingRequestFrom = nil }
-        handler?(false, nil)
-    }
-
-    func startAdvertising(profileName: String) {
-        #if targetEnvironment(simulator)
-        DispatchQueue.main.async { self.status = "UWB接続は実機で利用できます" }
-        #else
-        guard NISession.deviceCapabilities.supportsPreciseDistanceMeasurement else {
-            DispatchQueue.main.async { self.status = "この端末はUWB距離測定に対応していません" }
+    func start() {
+        guard !isParticipating else { return }
+        session = UWBMultiPeerSession(personID: personID)
+        connectionError = nil
+        guard session.isSupported else {
+            connectionError = "近くの人を見つけるにはUWB対応のiPhoneが必要です。"
             return
         }
-        if localPeer?.displayName == profileName, mcSession != nil { return }
-        stop()
+        presenceActivity.onEnded = { [weak self] in
+            self?.stop()
+        }
+        do { try presenceActivity.start() }
+        catch {
+            connectionError = "バックグラウンドでの参加にはライブアクティビティの許可が必要です。今回はBloomを開いている間だけ参加できます。"
+        }
+        generation = UUID()
         isParticipating = true
-        let peer = MCPeerID(displayName: String(profileName.prefix(60)))
-        localPeer = peer
-        let session = MCSession(peer: peer, securityIdentity: nil, encryptionPreference: .required)
-        session.delegate = self
-        mcSession = session
+        session.startHosting()
+        session.startBrowsing()
+        monitor = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.refresh()
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
+    }
 
-        let advertiser = MCNearbyServiceAdvertiser(peer: peer, discoveryInfo: ["app": "hello"], serviceType: serviceType)
-        advertiser.delegate = self
-        self.advertiser = advertiser
-        advertiser.startAdvertisingPeer()
+    func connect(to peer: UWBPeer) {
+        guard isParticipating else { return }
+        do { try session.connect(to: peer) }
+        catch { connectionError = error.localizedDescription }
+    }
 
-        let browser = MCNearbyServiceBrowser(peer: peer, serviceType: serviceType)
-        browser.delegate = self
-        self.browser = browser
-        browser.startBrowsingForPeers()
-        DispatchQueue.main.async { self.status = "近くのメンバーを探しています" }
-        #endif
+    private func refresh() {
+        let now = ContinuousClock.now
+        let elapsed = clockOrigin.duration(to: now).components
+        let time = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        if nextDiscoveryRestart.map({ now >= $0 }) ?? true {
+            // These are idempotent while running; restart after a transient discovery failure.
+            session.startHosting()
+            session.startBrowsing()
+            nextDiscoveryRestart = now.advanced(by: .seconds(5))
+        }
+        let discoveredIDs = Set(session.discoveredPeers.map(\.id))
+        automaticRetry.retainOnly(discoveredIDs)
+        // Only one endpoint initiates automatically, avoiding simultaneous cross-connections.
+        for peer in session.discoveredPeers where session.localName < peer.name {
+            if automaticRetry.shouldAttempt(peerID: peer.id, localName: session.localName, remoteName: peer.name, time: time) {
+                // connect(to:) reuses a live connection and replaces a failed one.
+                connect(to: peer)
+            }
+        }
+        let observations = session.observations.filter {
+            guard let distance = $0.distanceMeters else { return false }
+            let age = Date().timeIntervalSince($0.observedAt)
+            return distance.isFinite && distance >= 0 && age >= 0 && age < 3 && $0.personID != personID
+        }
+        let visibleIDs = Set(observations.map(\.personID))
+        authorizedPeople.removeAll { !visibleIDs.contains($0.id) || (expiresAt[$0.id].map { now >= $0 } ?? true) }
+        for id in Array(requests.keys) where !visibleIDs.contains(id) {
+            requests.removeValue(forKey: id)?.cancel()
+            requestIDs[id] = nil
+            refreshAt[id] = nil
+            expiresAt[id] = nil
+        }
+        let authorizedIDs = Set(authorizedPeople.map(\.id))
+        var completed = tracker.retainOnly(visibleIDs.intersection(authorizedIDs))
+        lastObservation = lastObservation.filter { visibleIDs.contains($0.key) && authorizedIDs.contains($0.key) }
+        for observation in observations where authorizedIDs.contains(observation.personID) {
+            guard lastObservation[observation.personID] != observation.observedAt else { continue }
+            lastObservation[observation.personID] = observation.observedAt
+            completed += tracker.observe(personID: observation.personID, distance: observation.distanceMeters,
+                                         time: time, date: observation.observedAt)
+        }
+        persist(completed)
+        for id in visibleIDs where requests[id] == nil {
+            if let next = refreshAt[id], now < next { continue }
+            let generation = generation
+            let requestID = UUID()
+            requestIDs[id] = requestID
+            requests[id] = Task { [weak self] in
+                guard let self else { return }
+                defer {
+                    if self.requestIDs[id] == requestID {
+                        self.requests[id] = nil
+                        self.requestIDs[id] = nil
+                    }
+                }
+                do {
+                    let profile = try await repository.fetchProfile(personID: id)
+                    let contents = try await repository.fetchContents(personID: id)
+                    try Task.checkCancellation()
+                    guard self.generation == generation, requestIDs[id] == requestID, isParticipating,
+                          session.observations.contains(where: {
+                              $0.personID == id && $0.distanceMeters != nil && Date().timeIntervalSince($0.observedAt) < 3
+                          }) else { return }
+                    authorizedPeople.removeAll { $0.id == id }
+                    authorizedPeople.append(NearbyPerson(profile: profile, contents: contents.filter(\.isPublic)))
+                    authorizedPeople.sort { $0.profile.displayName.localizedStandardCompare($1.profile.displayName) == .orderedAscending }
+                    refreshAt[id] = ContinuousClock.now.advanced(by: .seconds(12))
+                    expiresAt[id] = ContinuousClock.now.advanced(by: .seconds(15))
+                } catch {
+                    guard self.generation == generation, requestIDs[id] == requestID, !Task.isCancelled else { return }
+                    authorizedPeople.removeAll { $0.id == id }
+                    refreshAt[id] = ContinuousClock.now.advanced(by: .seconds(15))
+                    if (error as? BackendError) != .notFound {
+                        connectionError = "プロフィールを取得できませんでした。" + error.localizedDescription
+                    }
+                }
+            }
+        }
+    }
+
+    private func persist(_ completed: [RecordedEncounter]) {
+        pendingRecords += completed
+        guard !pendingRecords.isEmpty else { return }
+        do {
+            if historyStore == nil { historyStore = try EncounterHistoryStore(ownerID: personID) }
+            guard let historyStore else { return }
+            try historyStore.save(pendingRecords)
+            records = try historyStore.load()
+            pendingRecords.removeAll()
+            historyError = nil
+        } catch {
+            historyError = "履歴を保存できませんでした。参加中は再試行します。" + error.localizedDescription
+        }
+    }
+
+    func retryHistory() {
+        do {
+            if historyStore == nil { historyStore = try EncounterHistoryStore(ownerID: personID) }
+            if pendingRecords.isEmpty {
+                records = try historyStore?.load() ?? []
+                historyError = nil
+            } else { persist([]) }
+        } catch { historyError = error.localizedDescription }
+    }
+
+    func renameEncounter(id: UUID, title: String) throws {
+        if historyStore == nil { historyStore = try EncounterHistoryStore(ownerID: personID) }
+        guard let historyStore else { throw CocoaError(.fileNoSuchFile) }
+        try historyStore.rename(id: id, title: title)
+        records = try historyStore.load()
+    }
+
+    func deleteHistory() {
+        do {
+            if historyStore == nil { historyStore = try EncounterHistoryStore(ownerID: personID) }
+            try historyStore?.deleteAll()
+            pendingRecords.removeAll()
+            records.removeAll()
+            tracker = EncounterTracker(rules: tracker.rules)
+            lastObservation.removeAll()
+            historyError = nil
+        } catch { historyError = "履歴を削除できませんでした。" + error.localizedDescription }
+    }
+
+    func enteredBackground() {
+        guard isParticipating else { return }
+        if !presenceActivity.permitsBackgroundRanging {
+            stop()
+            connectionError = "ライブアクティビティを開始できなかったため参加を終了しました。Bloomを開いて再び参加してください。"
+        }
+        // With the activity active, retain the Network connections and every NISession.
+        // NI delegate suspension events still remove stale measurements and resume the configuration.
+    }
+
+    func becameActive() {
+        guard isParticipating else { return }
+        guard presenceActivity.permitsBackgroundRanging else {
+            // Foreground-only participation is allowed when activities are disabled.
+            refresh()
+            return
+        }
+        refresh()
     }
 
     func stop() {
+        presenceActivity.stop()
+        persist(tracker.finishAll())
+        lastObservation.removeAll()
+        generation = UUID()
+        monitor?.cancel()
+        monitor = nil
+        requests.values.forEach { $0.cancel() }
+        requests.removeAll()
+        requestIDs.removeAll()
+        refreshAt.removeAll()
+        expiresAt.removeAll()
+        automaticRetry = AutomaticPeerRetry()
+        nextDiscoveryRestart = nil
+        authorizedPeople.removeAll()
+        session.stop()
         isParticipating = false
-        advertiser?.stopAdvertisingPeer()
-        browser?.stopBrowsingForPeers()
-        mcSession?.disconnect()
-        niSession?.invalidate()
-        advertiser = nil
-        browser = nil
-        mcSession = nil
-        niSession = nil
-        localPeer = nil
-        targetName = nil
-        nearbyPeers.removeAll()
-        invitedPeerNames.removeAll()
-        DispatchQueue.main.async {
-            self.distance = nil
-            self.pendingRequestFrom = nil
-            if self.encounterActive { self.finishEncounter(at: Date()) }
-            self.status = "出会いを一時停止中"
-        }
-    }
-
-    func connect(to profileName: String) {
-        #if targetEnvironment(simulator)
-        DispatchQueue.main.async {
-            self.distance = nil
-            self.status = "UWB接続にはUWB対応iPhoneの実機が必要です"
-        }
-        #else
-        guard NISession.deviceCapabilities.supportsPreciseDistanceMeasurement else {
-            DispatchQueue.main.async { self.status = "UWB対応端末でお試しください" }
-            return
-        }
-        guard isParticipating else {
-            DispatchQueue.main.async { self.status = "出会いへの参加をONにしてください" }
-            return
-        }
-        targetName = profileName
-        DispatchQueue.main.async { self.status = "\(profileName)さんを探しています…" }
-        inviteTargetIfAvailable()
-        #endif
-    }
-
-    private func inviteTargetIfAvailable() {
-        guard let targetName,
-              let peer = nearbyPeers[targetName],
-              !invitedPeerNames.contains(targetName),
-              let browser,
-              let mcSession,
-              mcSession.connectedPeers.isEmpty else { return }
-        invitedPeerNames.insert(targetName)
-        browser.invitePeer(peer, to: mcSession, withContext: nil, timeout: 20)
-        DispatchQueue.main.async { self.status = "接続の許可を待っています…" }
-    }
-
-    private func updateEncounter(with distance: Float) {
-        let now = Date()
-        if distance <= 4 {
-            leftRangeAt = nil
-            if encounterStartedAt == nil {
-                if enteredRangeAt == nil { enteredRangeAt = now }
-                if let enteredRangeAt, now.timeIntervalSince(enteredRangeAt) >= 5 {
-                    encounterStartedAt = now
-                    DispatchQueue.main.async { self.encounterActive = true; self.encounterSeconds = 0 }
-                } else {
-                    DispatchQueue.main.async { self.status = "4 m以内にいます · 出会いを確認中" }
-                }
-            } else if let encounterStartedAt {
-                DispatchQueue.main.async { self.encounterSeconds = Int(now.timeIntervalSince(encounterStartedAt)) }
-            }
-        } else {
-            enteredRangeAt = nil
-            guard let encounterStartedAt else { return }
-            if leftRangeAt == nil { leftRangeAt = now }
-            if let leftRangeAt, now.timeIntervalSince(leftRangeAt) >= 8 {
-                finishEncounter(at: leftRangeAt)
-            } else {
-                DispatchQueue.main.async { self.status = "離れています · 8秒後に出会いを保存" }
-            }
-        }
-    }
-
-    private func finishEncounter(at end: Date) {
-        guard let start = encounterStartedAt else { return }
-        let seconds = max(Int(end.timeIntervalSince(start)), 1)
-        let record = EncounterRecord(id: UUID(), personName: currentPeerName ?? "近くの人", startedAt: start, durationSeconds: seconds)
-        records.insert(record, at: 0)
-        if let data = try? JSONEncoder().encode(records) {
-            UserDefaults.standard.set(data, forKey: "hello.encounter.records")
-        }
-        encounterStartedAt = nil
-        enteredRangeAt = nil
-        leftRangeAt = nil
-        DispatchQueue.main.async {
-            self.encounterActive = false
-            self.encounterSeconds = 0
-            self.status = "出会いを保存しました · \(record.durationLabel)"
-        }
-    }
-
-    func formattedCurrentEncounter(for personName: String) -> String? {
-        guard encounterActive, currentPeerName == personName else { return nil }
-        let minutes = encounterSeconds / 60
-        let seconds = encounterSeconds % 60
-        return minutes > 0 ? "\(minutes)分\(String(format: "%02d", seconds))秒" : "\(seconds)秒"
-    }
-
-    private func startNearbyInteraction(with peer: MCPeerID) {
-        guard NISession.deviceCapabilities.supportsPreciseDistanceMeasurement else { return }
-        let session = NISession()
-        session.delegate = self
-        niSession = session
-        guard let token = session.discoveryToken,
-              let data = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) else {
-            DispatchQueue.main.async { self.status = "UWBセッションを開始できませんでした" }
-            return
-        }
-        do {
-            try mcSession?.send(data, toPeers: [peer], with: .reliable)
-            DispatchQueue.main.async { self.status = "UWBの距離を測定しています" }
-        } catch {
-            DispatchQueue.main.async { self.status = "接続情報を送信できませんでした" }
-        }
-    }
-
-    // MARK: Multipeer Connectivity
-
-    func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String: String]?) {
-        guard info?["app"] == "hello" else { return }
-        nearbyPeers[peerID.displayName] = peerID
-        inviteTargetIfAvailable()
-    }
-
-    func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
-        nearbyPeers.removeValue(forKey: peerID.displayName)
-    }
-
-    func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
-        guard isParticipating, let mcSession, mcSession.connectedPeers.isEmpty, pendingInvitation == nil else {
-            invitationHandler(false, nil)
-            return
-        }
-        pendingInvitation = invitationHandler
-        DispatchQueue.main.async {
-            self.pendingRequestFrom = peerID.displayName
-            self.status = "接続リクエストが届きました"
-        }
-    }
-
-    func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
-        switch state {
-        case .connected:
-            currentPeerName = peerID.displayName
-            startNearbyInteraction(with: peerID)
-        case .notConnected:
-            niSession?.invalidate()
-            niSession = nil
-            if encounterActive { finishEncounter(at: Date()) }
-            DispatchQueue.main.async {
-                self.distance = nil
-                self.currentPeerName = nil
-                self.status = self.isParticipating ? "近くのメンバーを探しています" : "出会いを一時停止中"
-            }
-        case .connecting:
-            DispatchQueue.main.async { self.status = "接続しています…" }
-        @unknown default:
-            break
-        }
-    }
-
-    func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
-        guard let token = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NIDiscoveryToken.self, from: data),
-              let niSession else { return }
-        niSession.run(NINearbyPeerConfiguration(peerToken: token))
-        DispatchQueue.main.async { self.status = "UWBで接続しました" }
-    }
-
-    func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {}
-
-    func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {}
-
-    func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {}
-
-    // MARK: Nearby Interaction
-
-    func session(_ session: NISession, didUpdate nearbyObjects: [NINearbyObject]) {
-        guard let measuredDistance = nearbyObjects.first(where: { $0.distance != nil })?.distance else { return }
-        DispatchQueue.main.async {
-            self.distance = measuredDistance
-            self.status = measuredDistance <= 4 ? "UWB接続中 · \(String(format: "%.1f", measuredDistance)) m" : "4 m以内に近づくと出会いを記録します"
-        }
-        updateEncounter(with: measuredDistance)
-    }
-
-    func session(_ session: NISession, didInvalidateWith error: Error) {
-        niSession = nil
-        DispatchQueue.main.async {
-            self.distance = nil
-            self.status = "UWB接続が終了しました"
-        }
-    }
-
-    func sessionWasSuspended(_ session: NISession) {
-        DispatchQueue.main.async { self.status = "UWB接続を一時停止中" }
-    }
-
-    func sessionSuspensionEnded(_ session: NISession) {
-        if let configuration = session.configuration {
-            session.run(configuration)
-        }
+        connectionError = nil
     }
 }
