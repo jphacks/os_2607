@@ -1,4 +1,6 @@
 import SwiftUI
+import AuthenticationServices
+import CryptoKit
 
 struct AuthFlowView: View {
     private enum Step {
@@ -7,6 +9,8 @@ struct AuthFlowView: View {
     }
 
     @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding = false
+    @State private var appleNonce: String?
+    @State private var appleRequestState: String?
     @State private var step: Step = .account
     @State private var isCreatingAccount = true
     @State private var email = ""
@@ -18,9 +22,10 @@ struct AuthFlowView: View {
     @State private var isDiscoverable = true
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var alertTitle = "処理を完了できませんでした"
 
-    private let authRepository: any AuthRepository = LocalAuthRepository()
-    private let profileRepository: any ProfileRepository = LocalProfileRepository()
+    let authRepository: any AuthRepository
+    let profileRepository: any ProfileRepository
 
     var body: some View {
         ZStack {
@@ -43,7 +48,7 @@ struct AuthFlowView: View {
         }
         .foregroundStyle(BloomPalette.ink)
         .preferredColorScheme(.light)
-        .alert("入力を確認してください", isPresented: Binding(
+        .alert(alertTitle, isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -72,6 +77,11 @@ struct AuthFlowView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(BloomPalette.muted)
             }
+
+            SignInWithAppleButton(.continue, onRequest: prepareAppleRequest, onCompletion: completeAppleRequest)
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 50)
+                .disabled(isSaving)
 
             VStack(spacing: 12) {
                 inputField(title: "メールアドレス", placeholder: "name@example.com", text: $email)
@@ -188,16 +198,82 @@ struct AuthFlowView: View {
         }
     }
 
+    private func prepareAppleRequest(_ request: ASAuthorizationAppleIDRequest) {
+        // SystemRandomNumberGenerator uses the system cryptographically secure random source.
+        let nonce = (0..<32).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined()
+        let state = UUID().uuidString
+        appleNonce = nonce
+        appleRequestState = state
+        isSaving = true
+        errorMessage = nil
+        alertTitle = "Appleでログインできませんでした"
+        request.requestedScopes = [.email, .fullName]
+        request.nonce = SHA256.hash(data: Data(nonce.utf8)).map { String(format: "%02x", $0) }.joined()
+        request.state = state
+    }
+
+    private func completeAppleRequest(_ result: Result<ASAuthorization, Error>) {
+        let nonce = appleNonce
+        let expectedState = appleRequestState
+        appleNonce = nil
+        appleRequestState = nil
+        switch result {
+        case .failure(let error):
+            isSaving = false
+            if let error = error as? ASAuthorizationError, error.code == .canceled { return }
+            errorMessage = error.localizedDescription
+        case .success(let authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let nonce, let expectedState, credential.state == expectedState,
+                  let data = credential.identityToken,
+                  let token = String(data: data, encoding: .utf8), !token.isEmpty else {
+                isSaving = false
+                errorMessage = "Appleの認証情報を確認できませんでした。もう一度お試しください。"
+                return
+            }
+            // Apple may supply the name only once. Prefill it for the user's explicit profile save.
+            let suggestedName = credential.fullName.map { PersonNameComponentsFormatter().string(from: $0) }
+            Task {
+                defer { isSaving = false }
+                do {
+                    try await authRepository.signInWithApple(idToken: token, nonce: nonce)
+                    if displayName.isEmpty, let suggestedName { displayName = suggestedName }
+                    try await finishSignIn()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func finishSignIn() async throws {
+        do {
+            _ = try await profileRepository.fetchMyProfile()
+            didCompleteOnboarding = true
+        } catch BackendError.notFound {
+            step = .profile
+        }
+    }
+
     private func submitAccount() {
+        guard !isSaving else { return }
+        alertTitle = "処理を完了できませんでした"
         isSaving = true
         Task {
             do {
                 if isCreatingAccount {
                     try await authRepository.signUp(email: email, password: password)
-                    await MainActor.run { step = .profile }
+                    if try await authRepository.currentUser() != nil {
+                        step = .profile
+                    } else {
+                        isCreatingAccount = false
+                        password = ""
+                        alertTitle = "メールをご確認ください"
+                        errorMessage = "確認メールのリンクを開いてから、ログインしてください。"
+                    }
                 } else {
                     try await authRepository.signIn(email: email, password: password)
-                    await MainActor.run { didCompleteOnboarding = true }
+                    try await finishSignIn()
                 }
             } catch {
                 await MainActor.run { errorMessage = error.localizedDescription }
@@ -212,7 +288,7 @@ struct AuthFlowView: View {
         isSaving = true
         Task {
             do {
-                try await profileRepository.createProfile(
+                _ = try await profileRepository.createProfile(
                     ProfileCreateInput(
                         displayName: cleanName,
                         affiliation: affiliation.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -224,7 +300,7 @@ struct AuthFlowView: View {
 
                 let cleanHobby = hobby.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !cleanHobby.isEmpty {
-                    try await profileRepository.createContent(
+                    _ = try await profileRepository.createContent(
                         ProfileContentCreateInput(
                             type: .text,
                             title: "趣味",

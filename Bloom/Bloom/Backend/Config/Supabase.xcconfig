@@ -1,4 +1,4 @@
 // Only a project URL and public client key belong here. Supply values in the local override.
-SUPABASE_URL =
-SUPABASE_PUBLISHABLE_KEY =
+SUPABASE_URL = "https://sapdpmepmeeexppirzle.supabase.co"
+SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Vl5kag8DLMkslh4Ef9YAKA_eVRvvKAt"
 #include? "Supabase.local.xcconfig"

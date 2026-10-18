@@ -36,8 +36,9 @@ final class UWBPeerTransport {
                 }
             }
         try await browser.run { discovered in
-            self.endpoints = Dictionary(uniqueKeysWithValues: discovered.map { ($0.id, $0) })
-            update(discovered.map { UWBPeer(id: $0.id, name: $0.name) }.sorted { $0.name < $1.name })
+            let remotePeers = discovered.filter { $0.name != self.serviceName }
+            self.endpoints = Dictionary(uniqueKeysWithValues: remotePeers.map { ($0.id, $0) })
+            update(remotePeers.map { UWBPeer(id: $0.id, name: $0.name) }.sorted { $0.name < $1.name })
         }
     }
 

@@ -3,13 +3,25 @@ import SwiftUI
 @main
 struct BloomApp: App {
     @AppStorage("didCompleteOnboarding") private var didCompleteOnboarding = false
+    private let backend: Result<BackendDependencies, Error> = Result {
+        BackendDependencies.live(config: try SupabaseConfig.load())
+    }
 
     var body: some Scene {
         WindowGroup {
             if didCompleteOnboarding {
                 HomeView()
             } else {
-                AuthFlowView()
+                switch backend {
+                case .success(let dependencies):
+                    AuthFlowView(
+                        authRepository: dependencies.authRepository,
+                        profileRepository: dependencies.profileRepository
+                    )
+                case .failure(let error):
+                    Text(verbatim: error.localizedDescription)
+                        .padding()
+                }
             }
         }
     }
@@ -47,11 +59,12 @@ struct EncounterPerson: Identifiable {
 }
 
 struct HomeView: View {
-    @State private var isParticipating = false
+    @Environment(\.scenePhase) private var scenePhase
+    private var isParticipating: Bool { proximity.isParticipating }
     @State private var selectedTab = 0
     @State private var selectedPerson: EncounterPerson?
     @State private var selectedConversation: String?
-    @StateObject private var proximity = UWBConnectionService()
+    @State private var proximity = UWBConnectionService()
     @AppStorage("profileName") private var profileName = "あおい"
 
     private let nearbyPeople = [
@@ -74,28 +87,10 @@ struct HomeView: View {
         .fullScreenCover(item: $selectedPerson) { person in
             EncounterProfileView(person: person, proximity: proximity)
         }
-        .onAppear {
-            if isParticipating { proximity.startAdvertising(profileName: profileName) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { proximity.stop() }
         }
-        .onChange(of: isParticipating) { _, isOn in
-            if isOn {
-                proximity.startAdvertising(profileName: profileName)
-            } else {
-                proximity.stop()
-            }
-        }
-        .onChange(of: profileName) { _, name in
-            if isParticipating { proximity.startAdvertising(profileName: name) }
-        }
-        .alert("UWB接続リクエスト", isPresented: Binding(
-            get: { proximity.pendingRequestFrom != nil },
-            set: { _ in }
-        )) {
-            Button("許可") { proximity.acceptPendingRequest() }
-            Button("拒否", role: .cancel) { proximity.rejectPendingRequest() }
-        } message: {
-            Text("\(proximity.pendingRequestFrom ?? "近くの人")さんから接続リクエストが届きました。許可するとUWBで距離を測定します。")
-        }
+        .onDisappear { proximity.stop() }
     }
 
     @ViewBuilder
@@ -120,9 +115,12 @@ struct HomeView: View {
                 header
                 greeting
                 if isParticipating {
-                    nearbySection
+                    UWBConnectionsView(proximity: proximity)
                 } else {
                     pausedCard
+                }
+                if let error = proximity.connectionError {
+                    Text(verbatim: error).foregroundStyle(.secondary)
                 }
                 connectBanner
             }
@@ -247,7 +245,7 @@ struct HomeView: View {
 
     private var connectBanner: some View {
         Button {
-            isParticipating.toggle()
+            if isParticipating { proximity.stop() } else { proximity.start() }
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
@@ -334,7 +332,8 @@ struct HomeView: View {
 
 private struct EncounterProfileView: View {
     let person: EncounterPerson
-    @ObservedObject var proximity: UWBConnectionService
+    let proximity: UWBConnectionService
+    @State private var isShowingNearbyDevices = false
     @Environment(\.dismiss) private var dismiss
     @State private var isShowingDM = false
 
@@ -621,12 +620,6 @@ private struct EncounterProfileView: View {
 
     private var actionButtons: some View {
         VStack(spacing: 8) {
-            if !proximity.status.isEmpty {
-                Text(proximity.status)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(proximity.distance != nil && proximity.distance! <= 4 ? BloomPalette.green : BloomPalette.muted)
-                    .lineLimit(1)
-            }
             HStack(spacing: 10) {
                 Button {
                     isShowingDM = true
@@ -638,8 +631,8 @@ private struct EncounterProfileView: View {
                         .background(BloomPalette.blue.opacity(0.09), in: RoundedRectangle(cornerRadius: 15))
                 }
                 .buttonStyle(.plain)
-                Button { proximity.connect(to: person.name) } label: {
-                    Label(proximity.distance == nil ? "つながる" : "UWB接続中", systemImage: "dot.radiowaves.left.and.right")
+                Button { isShowingNearbyDevices = true } label: {
+                    Label("近くの端末", systemImage: "dot.radiowaves.left.and.right")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity).frame(height: 48)
@@ -649,6 +642,17 @@ private struct EncounterProfileView: View {
             }
         }
         .padding(.horizontal, 2)
+        .sheet(isPresented: $isShowingNearbyDevices) {
+            NavigationStack {
+                ScrollView {
+                    UWBConnectionsView(proximity: proximity).padding()
+                }
+                .navigationTitle("近くの端末")
+                .toolbar {
+                    Button("閉じる") { isShowingNearbyDevices = false }
+                }
+            }
+        }
     }
 }
 

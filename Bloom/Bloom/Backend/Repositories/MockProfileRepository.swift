@@ -95,6 +95,7 @@ private final class MockProfileStore: ProfileAPIProtocol, ProfileContentAPIProto
     func currentUser() async throws -> AuthUser? { AuthUser(id: userID, email: nil) }
     func signUp(email: String, password: String) async throws { throw BackendError.configuration }
     func signIn(email: String, password: String) async throws { throw BackendError.configuration }
+    func signInWithApple(idToken: String, nonce: String) async throws { throw BackendError.configuration }
     func signOut() async throws { throw BackendError.configuration }
     func requestPasswordReset(email: String) async throws { throw BackendError.configuration }
 }

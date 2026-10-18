@@ -31,10 +31,8 @@
 			membershipExceptions = (
 				Backend/Config/Info.plist,
 				Backend/Profile/ProfileRepository.swift,
-				Frontend/AppPages.swift,
-				Frontend/Auth/AuthFlowView.swift,
-				Frontend/BloomApp.swift,
-				Frontend/UWBConnectionService.swift,
+				BloomApp.swift,
+				ContentView.swift,
 			);
 			target = 99B2C7D53083451A0062B42C /* Bloom */;
 		};
@@ -403,12 +401,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Bloom/Bloom.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8UHZ85W886;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Bloom/Backend/Config/Info.plist;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "近くの端末を見つけて接続するために使用します。";
+				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "近くの端末との距離と方向を測定するために使用します。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -420,7 +421,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.NyanCat.Bloom;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kazuyoshi0309.Bloom;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -439,12 +440,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Bloom/Bloom.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8UHZ85W886;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Bloom/Backend/Config/Info.plist;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "近くの端末を見つけて接続するために使用します。";
+				INFOPLIST_KEY_NSNearbyInteractionUsageDescription = "近くの端末との距離と方向を測定するために使用します。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -456,7 +460,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.NyanCat.Bloom;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kazuyoshi0309.Bloom;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
