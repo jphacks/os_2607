@@ -16,7 +16,7 @@ Supabase MCPで作成済み。ローカルSupabase環境は不要。
 - Errors: `BackendError`, `ProfileValidationError`・`ProfileValidation`
 
 Model/入力値はFoundationのみを使う。DTOはsnake_caseのCodingKeysを持ち、Mapperで日時を検証・変換する。不正日時・UUID・未知のcontent_typeを補完しない。
-Repositoryが入力整形、検証、API呼出、変換、エラー処理、displayOrder→createdAtの安定ソートを担う。同順位はAPIのid順で安定させる。通信は公式Supabase Swift SDK 2.49.0。
+Repositoryが入力整形、検証、API呼出、変換、エラー処理、displayOrder→createdAtの安定ソートを担う。同順位はAPIのid順で安定させる。通信は公式Supabase Swift SDK 2.49.0。 
 
 ## 設定
 
