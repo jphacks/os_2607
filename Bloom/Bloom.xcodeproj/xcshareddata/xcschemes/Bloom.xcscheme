@@ -35,7 +35,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "4D5966A13083C2BB0018093E"
-               BuildableName = "BloomUWBTests.xctest"
+               BuildableName = "BloomUWBTests"
                ReferencedContainer = "container:Bloom.xcodeproj">
             </BuildableReference>
          </TestableReference>
